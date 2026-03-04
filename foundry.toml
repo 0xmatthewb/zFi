@@ -1,10 +1,18 @@
 [profile.default]
-solc = "0.8.33"
+solc = "0.8.34"
+via_ir = true
+optimizer = true
+optimizer_runs = 9_999_999
+
+eth_rpc_url = "https://ethereum-rpc.publicnode.com"
+
+# zQuoter needs low runs + yul=false to stay under EIP-170 (24,576 bytes)
+[profile.zquoter]
+src = "src"
+test = "test"
 via_ir = true
 optimizer = true
 optimizer_runs = 20
 
-eth_rpc_url = "https://ethereum-rpc.publicnode.com"
-
-[profile.default.optimizer_details]
+[profile.zquoter.optimizer_details]
 yul = false

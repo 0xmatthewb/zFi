@@ -12,6 +12,7 @@ pragma solidity ^0.8.33;
 ///         and enforces that sellAmount + feeAmount equals the contract's full
 ///         token balance (the deposit that snwap just transferred in).
 contract Cowol {
+    address constant SAFE_EXECUTOR = 0x25Fc36455aa30D012bbFB86f283975440D7Ee8Db;
     address constant VAULT_RELAYER = 0xC92E8bdf79f0507f65a392b0ab4667716BFE0110; // GPv2VaultRelayer
 
     /// EIP-712 constants for GPv2Order digest computation.
@@ -43,6 +44,7 @@ contract Cowol {
     /// @param data abi.encode(buyToken, receiver, sellAmount, buyAmount,
     ///                        validTo, appData, feeAmount)
     function swap(address, address tokenIn, address, address, bytes calldata data) public payable {
+        require(msg.sender == SAFE_EXECUTOR);
         // Lazy-approve VaultRelayer to pull sell tokens.
         if (allowance(tokenIn, address(this), VAULT_RELAYER) == 0) {
             safeApprove(tokenIn, VAULT_RELAYER, type(uint256).max);

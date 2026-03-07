@@ -1,9 +1,11 @@
-// Cloudflare Worker: IPFS pinning proxy for Pinata + 0x swap API proxy
+// Cloudflare Worker: IPFS pinning proxy for Pinata + 0x/1inch/OKX swap API proxies
 // Deploy: wrangler deploy
-// Secrets: wrangler secret put PINATA_KEY / PINATA_SECRET / OX_API_KEY
+// Secrets: wrangler secret put PINATA_KEY / PINATA_SECRET / OX_API_KEY / INCH_API_KEY / OKX_API_KEY / OKX_SECRET_KEY / OKX_PASSPHRASE
 
 const PINATA = 'https://api.pinata.cloud';
 const OX_API = 'https://api.0x.org';
+const INCH_API = 'https://api.1inch.dev';
+const OKX_API = 'https://web3.okx.com';
 const MAX_IMAGE = 5 * 1024 * 1024; // 5MB
 const MAX_JSON = 64 * 1024; // 64KB
 
@@ -49,6 +51,52 @@ export default {
       const oxUrl = `${OX_API}${oxPath}?${url.searchParams}`;
       const res = await fetch(oxUrl, {
         headers: { '0x-api-key': env.OX_API_KEY, '0x-version': 'v2' },
+      });
+      return new Response(res.body, {
+        status: res.status,
+        headers: { ...cors(request), 'Content-Type': 'application/json' },
+      });
+    }
+
+    // GET /1inch/*  — proxy to 1inch Swap API (hides API key, bypasses CORS)
+    if (url.pathname.startsWith('/1inch/')) {
+      if (request.method !== 'GET') return json(request, { error: 'GET only' }, 405);
+      const inchPath = url.pathname.slice(6); // strip "/1inch" prefix
+      if (!inchPath.startsWith('/swap/')) return json(request, { error: 'forbidden path' }, 403);
+      const inchUrl = `${INCH_API}${inchPath}?${url.searchParams}`;
+      const res = await fetch(inchUrl, {
+        headers: { 'Authorization': `Bearer ${env.INCH_API_KEY}` },
+      });
+      return new Response(res.body, {
+        status: res.status,
+        headers: { ...cors(request), 'Content-Type': 'application/json' },
+      });
+    }
+
+    // GET /okx/*  — proxy to OKX DEX Aggregator API (HMAC-signed, hides credentials)
+    if (url.pathname.startsWith('/okx/')) {
+      if (request.method !== 'GET') return json(request, { error: 'GET only' }, 405);
+      const okxPath = url.pathname.slice(4); // strip "/okx" prefix
+      if (!okxPath.startsWith('/dex/')) return json(request, { error: 'forbidden path' }, 403);
+      const requestPath = `/api/v6${okxPath}`;
+      const qs = url.searchParams.toString();
+      const timestamp = new Date().toISOString();
+      const stringToSign = timestamp + 'GET' + requestPath + (qs ? '?' + qs : '');
+      const key = await crypto.subtle.importKey(
+        'raw', new TextEncoder().encode(env.OKX_SECRET_KEY),
+        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+      );
+      const sig = btoa(String.fromCharCode(...new Uint8Array(
+        await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(stringToSign)),
+      )));
+      const okxUrl = `${OKX_API}${requestPath}${qs ? '?' + qs : ''}`;
+      const res = await fetch(okxUrl, {
+        headers: {
+          'OK-ACCESS-KEY': env.OKX_API_KEY,
+          'OK-ACCESS-SIGN': sig,
+          'OK-ACCESS-TIMESTAMP': timestamp,
+          'OK-ACCESS-PASSPHRASE': env.OKX_PASSPHRASE,
+        },
       });
       return new Response(res.body, {
         status: res.status,

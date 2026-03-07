@@ -1038,7 +1038,10 @@ body.modal-open { overflow: hidden; }
 <div id="ppSwapNoteBox" style="display:none;margin-top:16px" class="quote-info">
   <div style="font-weight:600;color:var(--fg);margin-bottom:4px">Deposit confirmed</div>
   <p style="font-size:12px;color:var(--fg-muted);margin:0;line-height:1.5">You can view your pool balances and withdraw in the Privacy tab.</p>
-  <button onclick="setShown('ppSwapNoteBox',false)" class="swap-btn" style="margin-top:8px;padding:4px 12px;font-size:11px;opacity:0.6">Dismiss</button>
+  <div style="display:flex;gap:8px;margin-top:8px">
+    <button onclick="ppDownloadDepositSlip()" class="swap-btn" style="padding:4px 12px;font-size:11px">Download deposit slip</button>
+    <button onclick="setShown('ppSwapNoteBox',false)" class="swap-btn" style="padding:4px 12px;font-size:11px;opacity:0.6">Dismiss</button>
+  </div>
 </div>
 
 </div><!-- end swap-card -->
@@ -1085,7 +1088,10 @@ body.modal-open { overflow: hidden; }
   <div id="ppNoteBox" style="display:none;margin-top:16px" class="quote-info">
     <div style="font-weight:600;color:var(--fg);margin-bottom:4px">Deposit confirmed</div>
     <p style="font-size:12px;color:var(--fg-muted);margin:0;line-height:1.5">You can view your pool balances and withdraw in My Pools.</p>
-    <button onclick="setShown('ppNoteBox',false)" class="swap-btn" style="margin-top:8px;padding:4px 12px;font-size:11px;opacity:0.6">Dismiss</button>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onclick="ppDownloadDepositSlip()" class="swap-btn" style="padding:4px 12px;font-size:11px">Download deposit slip</button>
+      <button onclick="setShown('ppNoteBox',false)" class="swap-btn" style="padding:4px 12px;font-size:11px;opacity:0.6">Dismiss</button>
+    </div>
   </div>
 </div>
 
@@ -1103,6 +1109,17 @@ body.modal-open { overflow: hidden; }
       <a href="#" id="ppwRefreshLink" onclick="ppwLoadDeposits();return false" style="font-size:10px;color:var(--fg-muted);text-decoration:none">&#x21bb; Refresh</a>
     </div>
   </div>
+
+  <details style="margin-top:12px;font-size:11px;color:var(--fg-muted)">
+    <summary style="cursor:pointer;opacity:0.6">Manual recovery (import deposit slip)</summary>
+    <div style="margin-top:8px">
+      <textarea id="ppwManualNote" rows="3" placeholder='Paste deposit slip JSON or {"nullifier":"0x...","secret":"0x...",...}' style="width:100%;box-sizing:border-box;font-family:monospace;font-size:10px;background:var(--surface);color:var(--fg);border:1px solid var(--border-muted);padding:8px;resize:vertical"></textarea>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button onclick="ppwImportNote()" class="swap-btn" style="flex:1;padding:6px;font-size:11px;margin:0">Parse &amp; Load</button>
+        <button class="swap-btn" style="flex:1;padding:6px;font-size:11px;margin:0" onclick="this.querySelector('input').click()">Upload JSON<input type="file" accept=".json" onchange="ppwUploadNote(event)" style="display:none"></button>
+      </div>
+    </div>
+  </details>
 
   <div id="ppwParsed" style="display:none">
     <div style="border-top:1px solid var(--border-muted);margin:16px 0 0"></div>
@@ -1560,9 +1577,9 @@ body.modal-open { overflow: hidden; }
 <script src="./ethers.min.js"></script>
 <script src="./walletconnect.min.js"></script>
 <script src="./wallet.js"></script>
-<script src="./poseidon2.min.js"></script>
-<script src="./poseidon1.min.js"></script>
-<script src="./poseidon3.min.js"></script>
+<script defer src="./poseidon2.min.js"></script>
+<script defer src="./poseidon1.min.js"></script>
+<script defer src="./poseidon3.min.js"></script>
 <script>
 // ---- Dark mode ----
 document.addEventListener('click', e => { if (!e.target.closest('.z-nav')) document.querySelector('.z-nav')?.classList.remove('open'); });
@@ -1617,8 +1634,29 @@ const KS_ETH_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const KYBEROL_IFACE = new ethers.Interface([
   "function swap(address router, address tokenIn, address tokenOut, address recipient, bytes data)",
 ]);
+// 1inch / OneInchol integration
+const ONEINCHOL_ADDRESS = "0xD290cc62fC6e37fA34227454C5dF95F0345F7D7e";
+const INCH_API_BASE = "https://zfi-pin.rosscampbell9.workers.dev/1inch";
+const INCH_ETH_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const ONEINCHOL_IFACE = new ethers.Interface([
+  "function swap(address router, address tokenIn, address tokenOut, address recipient, bytes data)",
+]);
+// Odos / Odosol integration
+const ODOSOL_ADDRESS = "0x55B867886dc6DB50d40712204b9BFc4e21DB5479";
+const ODOS_API = "https://api.odos.xyz";
+const ODOS_ETH_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const ODOSOL_IFACE = new ethers.Interface([
+  "function swap(address router, address tokenIn, address tokenOut, address recipient, bytes data)",
+]);
+// OKX / OKXol integration
+const OKXOL_ADDRESS = "0x33Da92fD1D5672B471cF0b1aEa19e728c9FB74A7";
+const OKX_API_BASE = "https://zfi-pin.rosscampbell9.workers.dev/okx";
+const OKX_ETH_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const OKXOL_IFACE = new ethers.Interface([
+  "function swap(address router, address tokenIn, address tokenOut, address recipient, bytes data)",
+]);
 // CoW Protocol / Cowol integration
-const COWOL_ADDRESS = "0x5554C494171Eba04d84Eb1EBbb0F799Bdf4c888f";
+const COWOL_ADDRESS = "0xb3a0fEB849ABdd207d315A2d0a487E711504fe95";
 const COW_API = "https://api.cow.fi/mainnet/api/v1";
 const COW_SETTLEMENT = "0x9008D19f58AAbD9eD0D60971565AA8510560ab41";
 const COWOL_IFACE = new ethers.Interface([
@@ -3132,15 +3170,17 @@ const ERC20_APPROVE_ABI = ["function approve(address,uint256) returns (bool)"];
 // ---- Quote refresh timer ----
 let _refreshTimer = null;
 let _refreshCountdown = 0;
+let _isStableQuote = false;
 
 function startQuoteRefresh() {
   stopQuoteRefresh();
-  _refreshCountdown = 15;
+  const interval = _isStableQuote ? 30 : 15;
+  _refreshCountdown = interval;
   setText('quoteCountdown', `Refreshes in ${_refreshCountdown}s`);
   _refreshTimer = setInterval(() => {
     _refreshCountdown--;
     if (_refreshCountdown <= 0) {
-      _refreshCountdown = 15;
+      _refreshCountdown = interval;
       handleAmountChange();
     }
     setText('quoteCountdown', `Refreshes in ${_refreshCountdown}s`);
@@ -3382,6 +3422,10 @@ async function handleAmountChange() {
     setShown('refreshRow', !isDirectPath);
     setShown(quoteInfoEl, true);
     updateCalldataLink(quote.multicall);
+    const _stableSet = new Set(['USDC', 'DAI', 'USDT', 'LUSD', 'BOLD', 'crvUSD']);
+    const _lstSet = new Set(['ETH', 'WETH', 'stETH', 'wstETH', 'rETH']);
+    _isStableQuote = (_stableSet.has(fromSnap) && _stableSet.has(toSnap))
+                  || (_lstSet.has(fromSnap) && _lstSet.has(toSnap));
     if (isDirectPath) stopQuoteRefresh(); else startQuoteRefresh();
     const isZOrgSell = isZOrgSellPath(fromSnap, toSnap);
     const isZammSell = isZammSellPath(fromSnap, toSnap);
@@ -4262,19 +4306,143 @@ async function getKyberQuote(routeSummary, slippageBps) {
   return json.data || null;
 }
 
+// 1inch API helpers
+function inchToken(addr) {
+  return addr === ZERO_ADDRESS ? INCH_ETH_SENTINEL : addr;
+}
+async function get1inchPrice(sellToken, buyToken, sellAmount) {
+  if (ONEINCHOL_ADDRESS === ZERO_ADDRESS) return null;
+  const ac = new AbortController();
+  const tid = setTimeout(() => ac.abort(), 3000);
+  try {
+    const params = new URLSearchParams({
+      src: inchToken(sellToken),
+      dst: inchToken(buyToken),
+      amount: sellAmount.toString(),
+      includeGas: 'true',
+    });
+    const resp = await fetch(`${INCH_API_BASE}/swap/v6.0/1/quote?${params}`, { signal: ac.signal });
+    if (!resp.ok) return null;
+    return resp.json();
+  } finally { clearTimeout(tid); }
+}
+async function get1inchQuote(sellToken, buyToken, sellAmount, slippageBps) {
+  if (ONEINCHOL_ADDRESS === ZERO_ADDRESS) return null;
+  const params = new URLSearchParams({
+    src: inchToken(sellToken),
+    dst: inchToken(buyToken),
+    amount: sellAmount.toString(),
+    from: ONEINCHOL_ADDRESS,
+    slippage: (Number(slippageBps) / 100).toString(),
+    disableEstimate: 'true',
+  });
+  const resp = await fetch(`${INCH_API_BASE}/swap/v6.0/1/swap?${params}`);
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+// Odos API helpers
+function odosToken(addr) {
+  return addr === ZERO_ADDRESS ? ODOS_ETH_SENTINEL : addr;
+}
+async function getOdosPrice(sellToken, buyToken, sellAmount) {
+  if (ODOSOL_ADDRESS === ZERO_ADDRESS) return null;
+  const ac = new AbortController();
+  const tid = setTimeout(() => ac.abort(), 3000);
+  try {
+    const resp = await fetch(`${ODOS_API}/sor/quote/v2`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: ac.signal,
+      body: JSON.stringify({
+        chainId: 1,
+        inputTokens: [{ tokenAddress: odosToken(sellToken), amount: sellAmount.toString() }],
+        outputTokens: [{ tokenAddress: odosToken(buyToken), proportion: 1 }],
+        userAddr: ODOSOL_ADDRESS,
+        slippageLimitPercent: 1,
+        compact: true,
+        simple: true,
+        disableRFQs: false,
+      }),
+    });
+    if (!resp.ok) return null;
+    return resp.json();
+  } finally { clearTimeout(tid); }
+}
+async function getOdosQuote(pathId, slippageBps) {
+  if (ODOSOL_ADDRESS === ZERO_ADDRESS) return null;
+  const resp = await fetch(`${ODOS_API}/sor/assemble`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userAddr: ODOSOL_ADDRESS,
+      pathId,
+      simulate: false,
+    }),
+  });
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+// OKX DEX API helpers
+function okxToken(addr) {
+  return addr === ZERO_ADDRESS ? OKX_ETH_SENTINEL : addr;
+}
+async function getOkxPrice(sellToken, buyToken, sellAmount) {
+  if (OKXOL_ADDRESS === ZERO_ADDRESS) return null;
+  const ac = new AbortController();
+  const tid = setTimeout(() => ac.abort(), 3000);
+  try {
+    const params = new URLSearchParams({
+      chainIndex: '1',
+      fromTokenAddress: okxToken(sellToken),
+      toTokenAddress: okxToken(buyToken),
+      amount: sellAmount.toString(),
+      swapMode: 'exactIn',
+    });
+    const resp = await fetch(`${OKX_API_BASE}/dex/aggregator/quote?${params}`, { signal: ac.signal });
+    if (!resp.ok) return null;
+    const json = await resp.json();
+    if (json.code !== '0' || !json.data || !json.data[0]) return null;
+    return json.data[0];
+  } finally { clearTimeout(tid); }
+}
+async function getOkxQuote(sellToken, buyToken, sellAmount, slippageBps) {
+  if (OKXOL_ADDRESS === ZERO_ADDRESS) return null;
+  const params = new URLSearchParams({
+    chainIndex: '1',
+    fromTokenAddress: okxToken(sellToken),
+    toTokenAddress: okxToken(buyToken),
+    amount: sellAmount.toString(),
+    slippagePercent: (Number(slippageBps) / 100).toString(),
+    userWalletAddress: OKXOL_ADDRESS,
+    swapMode: 'exactIn',
+  });
+  const resp = await fetch(`${OKX_API_BASE}/dex/aggregator/swap?${params}`);
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (json.code !== '0' || !json.data || !json.data[0]) return null;
+  return json.data[0];
+}
+
 // CoW Protocol API helpers (ERC-20 only — no native ETH)
+function cowToken(addr) {
+  // CoW is ERC-20 only — substitute WETH for native ETH on sell side
+  return addr === ZERO_ADDRESS ? WETH_ADDRESS : addr;
+}
 async function getCowPrice(sellToken, buyToken, sellAmount) {
   if (COWOL_ADDRESS === ZERO_ADDRESS) return null;
-  if (sellToken === ZERO_ADDRESS || buyToken === ZERO_ADDRESS) return null;
+  // CoW cannot deliver native ETH (async settlement) — skip ETH buy side
+  if (buyToken === ZERO_ADDRESS) return null;
   const ac = new AbortController();
-  const tid = setTimeout(() => ac.abort(), 5000);
+  const tid = setTimeout(() => ac.abort(), 3000);
   try {
     const resp = await fetch(`${COW_API}/quote`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: ac.signal,
       body: JSON.stringify({
-        sellToken,
+        sellToken: cowToken(sellToken),
         buyToken,
         sellAmountBeforeFee: sellAmount.toString(),
         from: COWOL_ADDRESS,
@@ -4297,7 +4465,7 @@ async function getCowQuote(sellToken, buyToken, sellAmount, receiver) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      sellToken,
+      sellToken: cowToken(sellToken),
       buyToken,
       sellAmountBeforeFee: sellAmount.toString(),
       from: COWOL_ADDRESS,
@@ -4500,6 +4668,9 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     const psPriceP = cachedFetch(`ps:${_cacheKey}`, () => getParaswapPrice(fromData.address, toData.address, amountIn, fromData.decimals, toData.decimals, false)).catch(() => null);
     const ksPriceP = cachedFetch(`ks:${_cacheKey}`, () => getKyberPrice(fromData.address, toData.address, amountIn)).catch(() => null);
     const cowPriceP = cachedFetch(`cow:${_cacheKey}`, () => getCowPrice(fromData.address, toData.address, amountIn)).catch(() => null);
+    const inchPriceP = cachedFetch(`inch:${_cacheKey}`, () => get1inchPrice(fromData.address, toData.address, amountIn)).catch(() => null);
+    const odosPriceP = cachedFetch(`odos:${_cacheKey}`, () => getOdosPrice(fromData.address, toData.address, amountIn)).catch(() => null);
+    const okxPriceP = cachedFetch(`okx:${_cacheKey}`, () => getOkxPrice(fromData.address, toData.address, amountIn)).catch(() => null);
     // Merge light + heavy entries into a single Multicall3 batch (1 RPC call instead of 2)
     const heavyOffset = mc3Entries.length;
     const allEntries = [...mc3Entries, ...heavyEntries];
@@ -4856,7 +5027,7 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     }
 
     // External APIs: resolve all in parallel
-    const [oxPrice, psPrice, ksPrice, cowPrice] = await Promise.all([ox0xPriceP, psPriceP, ksPriceP, cowPriceP]);
+    const [oxPrice, psPrice, ksPrice, cowPrice, inchPrice, odosPrice, okxPrice] = await Promise.all([ox0xPriceP, psPriceP, ksPriceP, cowPriceP, inchPriceP, odosPriceP, okxPriceP]);
 
     // 0x / Matcha: compare against all sources
     if (oxPrice && oxPrice.buyAmount) {
@@ -4870,6 +5041,9 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
         result.isParaswap = false;
         result.isKyber = false;
         result.isCow = false;
+        result.is1inch = false;
+        result.isOdos = false;
+        result.isOkx = false;
         result.ox = oxPrice;
         result.sourceA = "0x";
         result.sourceB = null;
@@ -4891,6 +5065,9 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
         result.is0x = false;
         result.isKyber = false;
         result.isCow = false;
+        result.is1inch = false;
+        result.isOdos = false;
+        result.isOkx = false;
         result.psPriceRoute = psPrice;
         result.sourceA = "ParaSwap";
         result.sourceB = null;
@@ -4912,6 +5089,9 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
         result.is0x = false;
         result.isParaswap = false;
         result.isCow = false;
+        result.is1inch = false;
+        result.isOdos = false;
+        result.isOkx = false;
         result.ksRouteSummary = ksPrice;
         result.sourceA = "KyberSwap";
         result.sourceB = null;
@@ -4921,7 +5101,7 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
       }
     }
 
-    // CoW Protocol: compare against all sources (ERC-20 only, async settlement)
+    // CoW Protocol: compare against all sources (async settlement; ETH sells use WETH)
     if (cowPrice && cowPrice.quote && cowPrice.quote.buyAmount) {
       const cowOut = BigInt(cowPrice.quote.buyAmount);
       if (result.allQuotes) {
@@ -4933,6 +5113,9 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
         result.is0x = false;
         result.isParaswap = false;
         result.isKyber = false;
+        result.is1inch = false;
+        result.isOdos = false;
+        result.isOkx = false;
         result.cowQuote = cowPrice.quote;
         result.sourceA = "CoW Protocol";
         result.sourceB = null;
@@ -4940,6 +5123,102 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
         result.isSplit = false;
         result.splitLegs = null;
       }
+    }
+
+    // 1inch: compare against all sources
+    if (inchPrice && inchPrice.dstAmount) {
+      const inchOut = BigInt(inchPrice.dstAmount);
+      if (result.allQuotes) {
+        result.allQuotes.push({ source: "1inch", sourceId: -6, feeBps: 0n, amountIn, amountOut: inchOut });
+      }
+      if (inchOut > result.expectedOutput) {
+        result.expectedOutput = inchOut;
+        result.is1inch = true;
+        result.is0x = false;
+        result.isParaswap = false;
+        result.isKyber = false;
+        result.isCow = false;
+        result.isOdos = false;
+        result.isOkx = false;
+        result.inchQuote = inchPrice;
+        result.sourceA = "1inch";
+        result.sourceB = null;
+        result.isTwoHop = false;
+        result.isSplit = false;
+        result.splitLegs = null;
+      }
+    }
+
+    // Odos: compare against all sources
+    if (odosPrice && odosPrice.outAmounts && odosPrice.outAmounts[0]) {
+      const odosOut = BigInt(odosPrice.outAmounts[0]);
+      if (result.allQuotes) {
+        result.allQuotes.push({ source: "Odos", sourceId: -7, feeBps: 0n, amountIn, amountOut: odosOut });
+      }
+      if (odosOut > result.expectedOutput) {
+        result.expectedOutput = odosOut;
+        result.isOdos = true;
+        result.is0x = false;
+        result.isParaswap = false;
+        result.isKyber = false;
+        result.isCow = false;
+        result.is1inch = false;
+        result.isOkx = false;
+        result.odosPathId = odosPrice.pathId;
+        result.odosOutAmount = odosOut;
+        result.sourceA = "Odos";
+        result.sourceB = null;
+        result.isTwoHop = false;
+        result.isSplit = false;
+        result.splitLegs = null;
+      }
+    }
+
+    // OKX: compare against all sources
+    if (okxPrice && okxPrice.toTokenAmount) {
+      const okxOut = BigInt(okxPrice.toTokenAmount);
+      if (result.allQuotes) {
+        result.allQuotes.push({ source: "OKX", sourceId: -8, feeBps: 0n, amountIn, amountOut: okxOut });
+      }
+      if (okxOut > result.expectedOutput) {
+        result.expectedOutput = okxOut;
+        result.isOkx = true;
+        result.is0x = false;
+        result.isParaswap = false;
+        result.isKyber = false;
+        result.isCow = false;
+        result.is1inch = false;
+        result.isOdos = false;
+        result.okxOutAmount = okxOut;
+        result.sourceA = "OKX";
+        result.sourceB = null;
+        result.isTwoHop = false;
+        result.isSplit = false;
+        result.splitLegs = null;
+      }
+    }
+
+    // Speculatively prefetch firm quote for winning external aggregator
+    const _slippage = readSlippage();
+    result._firmSlippage = _slippage;
+    if (result.is0x) {
+      result._firmQuoteP = cachedFetch(`0x-firm:${_cacheKey}:${_slippage}`,
+        () => get0xQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
+    } else if (result.isParaswap) {
+      result._firmQuoteP = cachedFetch(`ps-firm:${_cacheKey}:${_slippage}`,
+        () => getParaswapQuote(result.psPriceRoute, fromData.address, toData.address, _slippage)).catch(() => null);
+    } else if (result.isKyber) {
+      result._firmQuoteP = cachedFetch(`ks-firm:${_cacheKey}:${_slippage}`,
+        () => getKyberQuote(result.ksRouteSummary, _slippage)).catch(() => null);
+    } else if (result.is1inch) {
+      result._firmQuoteP = cachedFetch(`inch-firm:${_cacheKey}:${_slippage}`,
+        () => get1inchQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
+    } else if (result.isOdos) {
+      result._firmQuoteP = cachedFetch(`odos-firm:${_cacheKey}:${_slippage}`,
+        () => getOdosQuote(result.odosPathId, _slippage)).catch(() => null);
+    } else if (result.isOkx) {
+      result._firmQuoteP = cachedFetch(`okx-firm:${_cacheKey}:${_slippage}`,
+        () => getOkxQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
     }
 
     return result;
@@ -5222,6 +5501,10 @@ async function getExactOutQuote(outputAmountStr, fromSym, toSym) {
         result.isParaswap = true;
         result.is0x = false;
         result.isKyber = false;
+        result.is1inch = false;
+        result.isOdos = false;
+        result.isOkx = false;
+        result.isCow = false;
         result.psPriceRoute = psPrice;
         result.sourceA = "ParaSwap";
         result.sourceB = null;
@@ -5850,7 +6133,9 @@ async function executeSwap() {
     if (quote.is0x) {
       swapBtn.textContent = "Fetching 0x route...";
       const toData = tokens[toSnap];
-      const oxQ = await get0xQuote(fromData.address, toData.address, amountIn, slippageBps);
+      const oxQ = (quote._firmQuoteP && quote._firmSlippage === slippageBps)
+        ? await quote._firmQuoteP
+        : await get0xQuote(fromData.address, toData.address, amountIn, slippageBps);
       if (!oxQ || !oxQ.transaction) {
         if (!quote.multicall) throw new Error("0x quote unavailable and no on-chain route");
         quote.is0x = false;
@@ -5891,7 +6176,9 @@ async function executeSwap() {
       // BUY-side: slippage increases maxSrcAmount in the calldata, but we only send
       // the indicative srcAmount to Parasol. Use slippage=0 so Augustus pulls exactly srcAmount.
       const psBuildSlippage = quote.exactOut ? 0 : slippageBps;
-      const psQ = await getParaswapQuote(quote.psPriceRoute, fromData.address, toData.address, psBuildSlippage);
+      const psQ = (quote._firmQuoteP && quote._firmSlippage === psBuildSlippage)
+        ? await quote._firmQuoteP
+        : await getParaswapQuote(quote.psPriceRoute, fromData.address, toData.address, psBuildSlippage);
       if (!psQ || !psQ.data) {
         if (!quote.multicall) throw new Error("ParaSwap quote unavailable and no on-chain route");
         quote.isParaswap = false;
@@ -5932,7 +6219,9 @@ async function executeSwap() {
     if (quote.isKyber) {
       swapBtn.textContent = "Fetching KyberSwap route...";
       const toData = tokens[toSnap];
-      const ksQ = await getKyberQuote(quote.ksRouteSummary, slippageBps);
+      const ksQ = (quote._firmQuoteP && quote._firmSlippage === slippageBps)
+        ? await quote._firmQuoteP
+        : await getKyberQuote(quote.ksRouteSummary, slippageBps);
       if (!ksQ || !ksQ.data) {
         if (!quote.multicall) throw new Error("KyberSwap quote unavailable and no on-chain route");
         quote.isKyber = false;
@@ -5966,6 +6255,126 @@ async function executeSwap() {
       }
     }
 
+    // 1inch / OneInchol execution: fetch firm quote and build snwap multicall
+    if (quote.is1inch) {
+      swapBtn.textContent = "Fetching 1inch route...";
+      const toData = tokens[toSnap];
+      const inchQ = (quote._firmQuoteP && quote._firmSlippage === slippageBps)
+        ? await quote._firmQuoteP
+        : await get1inchQuote(fromData.address, toData.address, amountIn, slippageBps);
+      if (!inchQ || !inchQ.tx) {
+        if (!quote.multicall) throw new Error("1inch quote unavailable and no on-chain route");
+        quote.is1inch = false;
+      } else {
+        const isEthIn = fromData.address === ZERO_ADDRESS;
+        const receiver = getReceiver();
+        const oneincholData = ONEINCHOL_IFACE.encodeFunctionData('swap', [
+          inchQ.tx.to,
+          fromData.address,
+          toData.address,
+          receiver,
+          inchQ.tx.data,
+        ]);
+        const inchMinBuy = BigInt(inchQ.dstAmount) * (10000n - BigInt(slippageBps)) / 10000n;
+        const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+          fromData.address,
+          isEthIn ? 0n : amountIn,
+          receiver,
+          toData.address,
+          inchMinBuy,
+          ONEINCHOL_ADDRESS,
+          oneincholData,
+        ]);
+        txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+        quote.multicall = txData;
+        quote.calls = [snwapCall];
+        quote.msgValue = isEthIn ? amountIn : 0n;
+        // Stash for permit2 rebuild (needs amountIn=0 variant)
+        quote._inchMinBuy = inchMinBuy;
+        quote._inchOneincholData = oneincholData;
+      }
+    }
+
+    // Odos / Odosol execution: fetch firm quote and build snwap multicall
+    if (quote.isOdos) {
+      swapBtn.textContent = "Fetching Odos route...";
+      const toData = tokens[toSnap];
+      const odosQ = (quote._firmQuoteP && quote._firmSlippage === slippageBps)
+        ? await quote._firmQuoteP
+        : await getOdosQuote(quote.odosPathId, slippageBps);
+      if (!odosQ || !odosQ.transaction) {
+        if (!quote.multicall) throw new Error("Odos quote unavailable and no on-chain route");
+        quote.isOdos = false;
+      } else {
+        const isEthIn = fromData.address === ZERO_ADDRESS;
+        const receiver = getReceiver();
+        const odosolData = ODOSOL_IFACE.encodeFunctionData('swap', [
+          odosQ.transaction.to,
+          fromData.address,
+          toData.address,
+          receiver,
+          odosQ.transaction.data,
+        ]);
+        const odosMinBuy = quote.odosOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+        const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+          fromData.address,
+          isEthIn ? 0n : amountIn,
+          receiver,
+          toData.address,
+          odosMinBuy,
+          ODOSOL_ADDRESS,
+          odosolData,
+        ]);
+        txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+        quote.multicall = txData;
+        quote.calls = [snwapCall];
+        quote.msgValue = isEthIn ? amountIn : 0n;
+        // Stash for permit2 rebuild (needs amountIn=0 variant)
+        quote._odosMinBuy = odosMinBuy;
+        quote._odosOdosolData = odosolData;
+      }
+    }
+
+    // OKX / OKXol execution: fetch firm quote and build snwap multicall
+    if (quote.isOkx) {
+      swapBtn.textContent = "Fetching OKX route...";
+      const toData = tokens[toSnap];
+      const okxQ = (quote._firmQuoteP && quote._firmSlippage === slippageBps)
+        ? await quote._firmQuoteP
+        : await getOkxQuote(fromData.address, toData.address, amountIn, slippageBps);
+      if (!okxQ || !okxQ.tx) {
+        if (!quote.multicall) throw new Error("OKX quote unavailable and no on-chain route");
+        quote.isOkx = false;
+      } else {
+        const isEthIn = fromData.address === ZERO_ADDRESS;
+        const receiver = getReceiver();
+        const okxolData = OKXOL_IFACE.encodeFunctionData('swap', [
+          okxQ.tx.to,
+          fromData.address,
+          toData.address,
+          receiver,
+          okxQ.tx.data,
+        ]);
+        const okxMinBuy = quote.okxOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+        const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+          fromData.address,
+          isEthIn ? 0n : amountIn,
+          receiver,
+          toData.address,
+          okxMinBuy,
+          OKXOL_ADDRESS,
+          okxolData,
+        ]);
+        txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+        quote.multicall = txData;
+        quote.calls = [snwapCall];
+        quote.msgValue = isEthIn ? amountIn : 0n;
+        // Stash for permit2 rebuild (needs amountIn=0 variant)
+        quote._okxMinBuy = okxMinBuy;
+        quote._okxOkxolData = okxolData;
+      }
+    }
+
     // CoW Protocol / Cowol execution: fetch firm quote, build snwap deposit + post order after tx
     if (quote.isCow) {
       swapBtn.textContent = "Fetching CoW quote...";
@@ -5977,9 +6386,12 @@ async function executeSwap() {
         quote.isCow = false;
       } else {
         const q = cowQ.quote;
+        const isEthIn = fromData.address === ZERO_ADDRESS;
+        // CoW is ERC-20 only — use WETH when selling native ETH
+        const cowSellToken = isEthIn ? WETH_ADDRESS : fromData.address;
         const cowolData = COWOL_IFACE.encodeFunctionData('swap', [
           ZERO_ADDRESS,       // (unused)
-          fromData.address,   // tokenIn (used for approval + balance check)
+          cowSellToken,       // tokenIn (used for approval + balance check)
           ZERO_ADDRESS,       // (unused)
           ZERO_ADDRESS,       // (unused)
           cowOrderData(q),    // abi.encode(buyToken, receiver, sellAmount, buyAmount, validTo, appData, feeAmount)
@@ -5989,23 +6401,30 @@ async function executeSwap() {
         // VaultRelayer pulls tokens later when the solver settles the batch.
         const cowAmountIn = BigInt(q.sellAmount) + BigInt(q.feeAmount);
         const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-          fromData.address,
-          cowAmountIn,
+          cowSellToken,
+          isEthIn ? 0n : cowAmountIn, // 0 = use router's WETH balance (from execute wrap)
           COWOL_ADDRESS,      // recipient = Cowol (balance check target)
-          fromData.address,   // tokenOut = tokenIn (so deposited tokens pass the check)
+          cowSellToken,       // tokenOut = tokenIn (so deposited tokens pass the check)
           0n,                 // amountOutMin = 0 (no atomic output; async settlement)
           COWOL_ADDRESS,      // executor = Cowol
           cowolData,
         ]);
-        txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+        // For ETH sells: execute(WETH.deposit) wraps ETH→WETH as ERC-20 in router,
+        // then snwap(WETH, 0, ...) transfers the router's WETH balance to Cowol.
+        const cowCalls = isEthIn
+          ? [ROUTER_IFACE.encodeFunctionData('execute', [WETH_ADDRESS, cowAmountIn, "0xd0e30db0"]), snwapCall]
+          : [snwapCall];
+        txData = ROUTER_IFACE.encodeFunctionData('multicall', [cowCalls]);
         quote.multicall = txData;
-        quote.calls = [snwapCall];
-        quote.msgValue = 0n;
+        quote.calls = cowCalls;
+        quote.msgValue = isEthIn ? cowAmountIn : 0n;
         // Stash order for post-tx API submission
         quote._cowOrder = q;
         // Stash for permit2 rebuild
         quote._cowCowolData = cowolData;
         quote._cowAmountIn = cowAmountIn;
+        quote._cowIsEthIn = isEthIn;
+        quote._cowSellToken = cowSellToken;
       }
     }
 
@@ -6031,7 +6450,7 @@ async function executeSwap() {
             let permitInnerCalls = quote.calls || decodeMulticallCalls(quote.multicall);
             // For aggregator swaps, re-fetch firm quote after signing (user may have
             // spent time in wallet popup, expiring the baked-in aggregator calldata).
-            const isAggQuote = quote.is0x || quote.isParaswap || quote.isKyber;
+            const isAggQuote = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx;
             if (isAggQuote) {
               try {
                 const toData = tokens[toSnap];
@@ -6075,6 +6494,42 @@ async function executeSwap() {
                       receiver, toData.address, ksMinBuy, KYBEROL_ADDRESS, kyberolData,
                     ]);
                   }
+                } else if (quote.is1inch) {
+                  const inchQ = await get1inchQuote(fromData.address, toData.address, amountIn, slippageBps);
+                  if (inchQ && inchQ.tx) {
+                    const oneincholData = ONEINCHOL_IFACE.encodeFunctionData('swap', [
+                      inchQ.tx.to, fromData.address, toData.address, receiver, inchQ.tx.data,
+                    ]);
+                    const inchMinBuy = BigInt(inchQ.dstAmount) * (10000n - BigInt(slippageBps)) / 10000n;
+                    freshAggCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                      fromData.address, fromData.address === ZERO_ADDRESS ? 0n : amountIn,
+                      receiver, toData.address, inchMinBuy, ONEINCHOL_ADDRESS, oneincholData,
+                    ]);
+                  }
+                } else if (quote.isOdos) {
+                  const odosQ = await getOdosQuote(quote.odosPathId, slippageBps);
+                  if (odosQ && odosQ.transaction) {
+                    const odosolData = ODOSOL_IFACE.encodeFunctionData('swap', [
+                      odosQ.transaction.to, fromData.address, toData.address, receiver, odosQ.transaction.data,
+                    ]);
+                    const odosMinBuy = quote.odosOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                    freshAggCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                      fromData.address, fromData.address === ZERO_ADDRESS ? 0n : amountIn,
+                      receiver, toData.address, odosMinBuy, ODOSOL_ADDRESS, odosolData,
+                    ]);
+                  }
+                } else if (quote.isOkx) {
+                  const okxQ = await getOkxQuote(fromData.address, toData.address, amountIn, slippageBps);
+                  if (okxQ && okxQ.tx) {
+                    const okxolData = OKXOL_IFACE.encodeFunctionData('swap', [
+                      okxQ.tx.to, fromData.address, toData.address, receiver, okxQ.tx.data,
+                    ]);
+                    const okxMinBuy = quote.okxOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                    freshAggCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                      fromData.address, fromData.address === ZERO_ADDRESS ? 0n : amountIn,
+                      receiver, toData.address, okxMinBuy, OKXOL_ADDRESS, okxolData,
+                    ]);
+                  }
                 }
                 if (freshAggCall) permitInnerCalls = [freshAggCall];
               } catch (aggErr) {
@@ -6113,7 +6568,7 @@ async function executeSwap() {
           }
           // For aggregator swaps, permit2 path needs +1 wei (snwap keeps 1 wei in router).
           // Skip permit2 for full-balance swaps where the user can't spare the extra wei.
-          const isAggSnwap = quote.is0x || quote.isParaswap || quote.isKyber || quote.isCow;
+          const isAggSnwap = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx || quote.isCow;
           const canPermit2 = p2Allowance >= amountIn && (!isAggSnwap || tokenBal > amountIn);
           if (canPermit2) {
             try {
@@ -6190,12 +6645,81 @@ async function executeSwap() {
                   innerCalls = [snwapCall0];
                 }
               }
+              else if (quote.is1inch) {
+                swapBtn.textContent = "Refreshing 1inch route...";
+                const inchQ = await get1inchQuote(fromData.address, toData.address, amountIn, slippageBps);
+                if (inchQ && inchQ.tx) {
+                  const oneincholData = ONEINCHOL_IFACE.encodeFunctionData('swap', [
+                    inchQ.tx.to, fromData.address, toData.address, receiver, inchQ.tx.data,
+                  ]);
+                  const inchMinBuy = BigInt(inchQ.dstAmount) * (10000n - BigInt(slippageBps)) / 10000n;
+                  const snwapCall0 = ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    inchMinBuy, ONEINCHOL_ADDRESS, oneincholData,
+                  ]);
+                  innerCalls = [snwapCall0];
+                } else {
+                  const snwapCall0 = ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    quote._inchMinBuy, ONEINCHOL_ADDRESS, quote._inchOneincholData,
+                  ]);
+                  innerCalls = [snwapCall0];
+                }
+              }
+              else if (quote.isOdos) {
+                swapBtn.textContent = "Refreshing Odos route...";
+                const odosQ = await getOdosQuote(quote.odosPathId, slippageBps);
+                if (odosQ && odosQ.transaction) {
+                  const odosolData = ODOSOL_IFACE.encodeFunctionData('swap', [
+                    odosQ.transaction.to, fromData.address, toData.address, receiver, odosQ.transaction.data,
+                  ]);
+                  const odosMinBuy = quote.odosOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                  const snwapCall0 = ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    odosMinBuy, ODOSOL_ADDRESS, odosolData,
+                  ]);
+                  innerCalls = [snwapCall0];
+                } else {
+                  const snwapCall0 = ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    quote._odosMinBuy, ODOSOL_ADDRESS, quote._odosOdosolData,
+                  ]);
+                  innerCalls = [snwapCall0];
+                }
+              }
+              else if (quote.isOkx) {
+                swapBtn.textContent = "Refreshing OKX route...";
+                const okxQ = await getOkxQuote(fromData.address, toData.address, amountIn, slippageBps);
+                if (okxQ && okxQ.tx) {
+                  const okxolData = OKXOL_IFACE.encodeFunctionData('swap', [
+                    okxQ.tx.to, fromData.address, toData.address, receiver, okxQ.tx.data,
+                  ]);
+                  const okxMinBuy = quote.okxOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                  const snwapCall0 = ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    okxMinBuy, OKXOL_ADDRESS, okxolData,
+                  ]);
+                  innerCalls = [snwapCall0];
+                } else {
+                  const snwapCall0 = ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    quote._okxMinBuy, OKXOL_ADDRESS, quote._okxOkxolData,
+                  ]);
+                  innerCalls = [snwapCall0];
+                }
+              }
               else if (quote.isCow) {
+                const cst = quote._cowSellToken || fromData.address;
                 const snwapCall0 = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, 0n, COWOL_ADDRESS, fromData.address,
+                  cst, 0n, COWOL_ADDRESS, cst,
                   0n, COWOL_ADDRESS, quote._cowCowolData,
                 ]);
-                innerCalls = [snwapCall0];
+                if (quote._cowIsEthIn) {
+                  const wrapCall = ROUTER_IFACE.encodeFunctionData('execute', [WETH_ADDRESS, quote._cowAmountIn, "0xd0e30db0"]);
+                  innerCalls = [wrapCall, snwapCall0];
+                } else {
+                  innerCalls = [snwapCall0];
+                }
               }
               txData = buildPermit2Multicall(innerCalls, permit2Data);
               approved = true;
@@ -6299,22 +6823,87 @@ async function executeSwap() {
               txData = fresh.multicall;
               quote.msgValue = fresh.msgValue;
             }
+          } else if (fresh.is1inch) {
+            const toData = tokens[toSnap];
+            const inchQ = await get1inchQuote(fromData.address, toData.address, amountIn, slippageBps);
+            if (inchQ && inchQ.tx) {
+              const isEthIn = fromData.address === ZERO_ADDRESS;
+              const receiver = getReceiver();
+              const oneincholData = ONEINCHOL_IFACE.encodeFunctionData('swap', [
+                inchQ.tx.to, fromData.address, toData.address, receiver, inchQ.tx.data,
+              ]);
+              const inchMinBuy = BigInt(inchQ.dstAmount) * (10000n - BigInt(slippageBps)) / 10000n;
+              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
+                inchMinBuy, ONEINCHOL_ADDRESS, oneincholData,
+              ]);
+              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+              quote.msgValue = isEthIn ? amountIn : 0n;
+            } else {
+              txData = fresh.multicall;
+              quote.msgValue = fresh.msgValue;
+            }
+          } else if (fresh.isOdos) {
+            const toData = tokens[toSnap];
+            const odosQ = await getOdosQuote(fresh.odosPathId, slippageBps);
+            if (odosQ && odosQ.transaction) {
+              const isEthIn = fromData.address === ZERO_ADDRESS;
+              const receiver = getReceiver();
+              const odosolData = ODOSOL_IFACE.encodeFunctionData('swap', [
+                odosQ.transaction.to, fromData.address, toData.address, receiver, odosQ.transaction.data,
+              ]);
+              const odosMinBuy = fresh.odosOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
+                odosMinBuy, ODOSOL_ADDRESS, odosolData,
+              ]);
+              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+              quote.msgValue = isEthIn ? amountIn : 0n;
+            } else {
+              txData = fresh.multicall;
+              quote.msgValue = fresh.msgValue;
+            }
+          } else if (fresh.isOkx) {
+            const toData = tokens[toSnap];
+            const okxQ = await getOkxQuote(fromData.address, toData.address, amountIn, slippageBps);
+            if (okxQ && okxQ.tx) {
+              const isEthIn = fromData.address === ZERO_ADDRESS;
+              const receiver = getReceiver();
+              const okxolData = OKXOL_IFACE.encodeFunctionData('swap', [
+                okxQ.tx.to, fromData.address, toData.address, receiver, okxQ.tx.data,
+              ]);
+              const okxMinBuy = BigInt(okxQ.toTokenAmount) * (10000n - BigInt(slippageBps)) / 10000n;
+              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
+                okxMinBuy, OKXOL_ADDRESS, okxolData,
+              ]);
+              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+              quote.msgValue = isEthIn ? amountIn : 0n;
+            } else {
+              txData = fresh.multicall;
+              quote.msgValue = fresh.msgValue;
+            }
           } else if (fresh.isCow) {
             const toData = tokens[toSnap];
+            const isEthIn = fromData.address === ZERO_ADDRESS;
+            const cowSellToken = isEthIn ? WETH_ADDRESS : fromData.address;
             const receiver = getReceiver();
             const cowQ = await getCowQuote(fromData.address, toData.address, amountIn, receiver);
             if (cowQ && cowQ.quote) {
               const q = cowQ.quote;
               const cowolData = COWOL_IFACE.encodeFunctionData('swap', [
-                ZERO_ADDRESS, fromData.address, ZERO_ADDRESS, ZERO_ADDRESS, cowOrderData(q),
+                ZERO_ADDRESS, cowSellToken, ZERO_ADDRESS, ZERO_ADDRESS, cowOrderData(q),
               ]);
               const cowAmountIn = BigInt(q.sellAmount) + BigInt(q.feeAmount);
               const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, cowAmountIn, COWOL_ADDRESS, fromData.address,
+                cowSellToken, isEthIn ? 0n : cowAmountIn, COWOL_ADDRESS, cowSellToken,
                 0n, COWOL_ADDRESS, cowolData,
               ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = 0n;
+              const cowCalls = isEthIn
+                ? [ROUTER_IFACE.encodeFunctionData('execute', [WETH_ADDRESS, cowAmountIn, "0xd0e30db0"]), snwapCall]
+                : [snwapCall];
+              txData = ROUTER_IFACE.encodeFunctionData('multicall', [cowCalls]);
+              quote.msgValue = isEthIn ? cowAmountIn : 0n;
               quote._cowOrder = q;
               quote.isCow = true;
             } else {
@@ -6481,6 +7070,7 @@ async function executeSwap() {
       );
       // Increment index immediately after tx submitted to prevent reuse if tab closes
       ppSetDepositIndex(_connectedAddress, _ppScope, _ppDepositIdx + 1);
+      ppBuildDepositSlip({ asset: ppAsset, amount: depositAmount, scope: _ppScope, depositIndex: _ppDepositIdx, nullifier, secret, precommitment, txHash: swapTx.hash, depositor: _connectedAddress });
 
       setShown('ppSwapNoteBox', true);
 
@@ -6507,7 +7097,7 @@ async function executeSwap() {
     let txValue = quote.msgValue ?? 0n;
 
     // Pre-flight simulation: dry-run the tx to catch reverts before the user signs
-    const isAggSwap = quote.is0x || quote.isParaswap || quote.isKyber;
+    const isAggSwap = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx;
     const maxSimRetries = isAggSwap ? 3 : 1;
     let estimatedGas = null;
     for (let simTry = 0; simTry < maxSimRetries; simTry++) {
@@ -6592,6 +7182,42 @@ async function executeSwap() {
                 freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
                   fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
                   receiver, toData.address, ksMinBuy, KYBEROL_ADDRESS, kyberolData,
+                ]);
+              }
+            } else if (quote.is1inch) {
+              const inchQ = await get1inchQuote(fromData.address, toData.address, amountIn, slippageBps);
+              if (inchQ && inchQ.tx) {
+                const oneincholData = ONEINCHOL_IFACE.encodeFunctionData('swap', [
+                  inchQ.tx.to, fromData.address, toData.address, receiver, inchQ.tx.data,
+                ]);
+                const inchMinBuy = BigInt(inchQ.dstAmount) * (10000n - BigInt(slippageBps)) / 10000n;
+                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
+                  receiver, toData.address, inchMinBuy, ONEINCHOL_ADDRESS, oneincholData,
+                ]);
+              }
+            } else if (quote.isOdos) {
+              const odosQ = await getOdosQuote(quote.odosPathId, slippageBps);
+              if (odosQ && odosQ.transaction) {
+                const odosolData = ODOSOL_IFACE.encodeFunctionData('swap', [
+                  odosQ.transaction.to, fromData.address, toData.address, receiver, odosQ.transaction.data,
+                ]);
+                const odosMinBuy = quote.odosOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
+                  receiver, toData.address, odosMinBuy, ODOSOL_ADDRESS, odosolData,
+                ]);
+              }
+            } else if (quote.isOkx) {
+              const okxQ = await getOkxQuote(fromData.address, toData.address, amountIn, slippageBps);
+              if (okxQ && okxQ.tx) {
+                const okxolData = OKXOL_IFACE.encodeFunctionData('swap', [
+                  okxQ.tx.to, fromData.address, toData.address, receiver, okxQ.tx.data,
+                ]);
+                const okxMinBuy = quote.okxOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
+                  receiver, toData.address, okxMinBuy, OKXOL_ADDRESS, okxolData,
                 ]);
               }
             }
@@ -7332,17 +7958,18 @@ walletInit({
   appName: 'zFi',
   onConnect: [() => {
     updateBalances();
-    const preAmt = _inputMode === 'exactOut' ? $('toAmount')?.value?.trim() : $('fromAmount')?.value?.trim();
-    if (preAmt) handleAmountChange();
+    handleAmountChange();
     if ($('privacyTab')?.style.display !== 'none') { updatePPBalance(); updatePPButton(); }
     if ($('sendTab')?.style.display !== 'none') { sendUpdateBalance(); sendUpdateButton(); sendLoadTimelocks(); }
     if ($('ppwRecipientHint')) ppwUpdateRecipientHint();
     if ($('ppwWithdrawBtn')) ppwSyncWithdrawButtonState();
     ppUpdateDescriptions(true);
-    // Show connected My Pools UI and auto-load
+    // Show connected My Pools UI and auto-load only if privacy tab is visible
     setShown('ppwLoadDisconnected', false);
     setShown('ppwLoadConnected', true);
-    ppwLoadDeposits();
+    if ($('privacyTab')?.style.display !== 'none') {
+      ppwLoadDeposits();
+    }
   }],
   onDisconnect: [() => {
     setText('swapBtn', 'Connect Wallet');
@@ -7356,6 +7983,8 @@ walletInit({
     _balanceCache.clear();
     _allowCache.clear();
     _ppMasterKeys = null;
+    _ppwEventCache = {};
+    _ppConfigCache = null; _ppConfigCacheTs = 0;
     if ($('ppwRecipientHint')) ppwUpdateRecipientHint();
     if ($('ppwWithdrawBtn')) ppwSyncWithdrawButtonState();
     updatePPButton(); setText('ppBalance', 'Balance: --');
@@ -7817,6 +8446,42 @@ function parsePPDepositReceipt(receipt) {
     }
   }
   return { value, label, commitment, leafIndex, root };
+}
+
+let _lastDepositSlip = null;
+
+function ppBuildDepositSlip({ asset, amount, scope, depositIndex, nullifier, secret, precommitment, txHash, depositor }) {
+  const slip = {
+    version: 1,
+    chainId: CHAIN_ID,
+    asset,
+    amount: amount.toString(),
+    scope: scope.toString(),
+    depositIndex,
+    nullifier: nullifier.toString(),
+    secret: secret.toString(),
+    precommitment: precommitment.toString(),
+    txHash,
+    depositor,
+    timestamp: new Date().toISOString(),
+  };
+  _lastDepositSlip = slip;
+  return slip;
+}
+
+function ppDownloadDepositSlip(slip) {
+  slip = slip || _lastDepositSlip;
+  if (!slip) { showStatus('No deposit slip available', 'error'); return; }
+  const json = JSON.stringify(slip, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `pp-deposit-${slip.asset}-${slip.depositIndex}-${slip.txHash ? slip.txHash.slice(0, 10) : Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function ppSyncAssetUI(asset) {
@@ -8297,6 +8962,9 @@ function switchTab(tab) {
     loadPPConfig();
     updatePPBalance();
     updatePPButton();
+    if (_connectedAddress && _signer && !_ppwLoadAbort) {
+      ppwLoadDeposits();
+    }
   } else if (tab === 'coin') {
     document.title = 'COIN';
     syncCoinURL();
@@ -8310,8 +8978,30 @@ function switchTab(tab) {
   }
 }
 
+let _ppConfigCache = null, _ppConfigCacheTs = 0;
+
+function ppApplyConfigUI() {
+  const cfg = ppGetAssetConfig(_ppSelectedAsset);
+  if (cfg) {
+    setText('ppFeeBps', cfg.vettingFeeBPS.toString());
+    setText('ppMinDeposit', fmt(ppFormatAmountWei(cfg.minimumDepositAmount, _ppSelectedAsset)));
+    setText('ppMinUnit', _ppSelectedAsset);
+    setShown('ppFeeInfo', true);
+  } else {
+    setShown('ppFeeInfo', false);
+  }
+  ppRenderDepositRoundedSuggestions();
+}
+
 async function loadPPConfig() {
   try {
+    if (_ppConfigCache && Date.now() - _ppConfigCacheTs < 60000) {
+      _ppConfig = _ppConfigCache.eth;
+      _ppConfigBold = _ppConfigCache.bold;
+      _ppConfigWstETH = _ppConfigCache.wsteth;
+      ppApplyConfigUI();
+      return;
+    }
     const rpc = await quoteRPC.call(r => r);
     const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
     const [ethResult, boldResult, wstethResult] = await Promise.allSettled([
@@ -8325,17 +9015,9 @@ async function loadPPConfig() {
     else console.warn("Failed to load BOLD PP config:", boldResult.reason);
     if (wstethResult.status === 'fulfilled') { const c = wstethResult.value; _ppConfigWstETH = { pool: c.pool, minimumDepositAmount: c.minimumDepositAmount, vettingFeeBPS: c.vettingFeeBPS, maxRelayFeeBPS: c.maxRelayFeeBPS }; }
     else { _ppConfigWstETH = null; console.warn("Failed to load wstETH PP config:", wstethResult.reason); }
-    const cfg = ppGetAssetConfig(_ppSelectedAsset);
-    if (cfg) {
-      setText('ppFeeBps', cfg.vettingFeeBPS.toString());
-      setText('ppMinDeposit', fmt(ppFormatAmountWei(cfg.minimumDepositAmount, _ppSelectedAsset)));
-      setText('ppMinUnit', _ppSelectedAsset);
-      setShown('ppFeeInfo', true);
-      ppRenderDepositRoundedSuggestions();
-    } else {
-      setShown('ppFeeInfo', false);
-      ppRenderDepositRoundedSuggestions();
-    }
+    _ppConfigCache = { eth: _ppConfig, bold: _ppConfigBold, wsteth: _ppConfigWstETH };
+    _ppConfigCacheTs = Date.now();
+    ppApplyConfigUI();
   } catch (e) {
     console.warn("Failed to load PP config:", e);
     ppRenderDepositRoundedSuggestions();
@@ -8579,6 +9261,7 @@ async function ppDeposit() {
         'Confirm ETH \u2192 wstETH \u2192 Privacy Pool deposit'
       );
       ppSetDepositIndex(_connectedAddress, scope, depositIdx + 1);
+      ppBuildDepositSlip({ asset: 'wstETH', amount: depositAmount, scope, depositIndex: depositIdx, nullifier, secret, precommitment, txHash: tx.hash, depositor: _connectedAddress });
 
       setShown('ppNoteBox', true);
 
@@ -8722,6 +9405,7 @@ async function ppDeposit() {
     }
     // Increment index immediately after tx submitted (before confirmation) to prevent reuse if tab closes
     ppSetDepositIndex(_connectedAddress, scope, depositIdx + 1);
+    ppBuildDepositSlip({ asset: _ppSelectedAsset, amount, scope, depositIndex: depositIdx, nullifier, secret, precommitment, txHash: tx.hash, depositor: _connectedAddress });
 
     setShown('ppNoteBox', true);
 
@@ -9266,6 +9950,7 @@ function ppwStartExpiryCountdown(expiration) {
 // ── Load Deposits / My Pools ────────────────────────────────────────
 let _ppwLoadAbort = null;
 let _ppwLoadResults = [];
+let _ppwEventCache = {}; // { [asset]: { depositLogs: [], withdrawnLogs: [], upToBlock: number } }
 
 async function ppwLoadDeposits() {
   const resultsEl = $('ppwLoadResults');
@@ -9294,69 +9979,87 @@ async function ppwLoadDeposits() {
 
     const rpc = await quoteRPC.call(r => r);
     const latestBlock = await rpc.getBlockNumber();
-    const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
     const assets = ['ETH', 'BOLD', 'wstETH'];
 
-    // Step 2: for each asset, fetch Deposited + Withdrawn events and build Pool Accounts
-    for (const asset of assets) {
+    if (refreshLink) refreshLink.textContent = 'Loading events\u2026 (Cancel)';
+
+    // Step 2: fetch Deposited + Withdrawn events for ALL assets in parallel (with incremental caching)
+    const eventPromises = assets.map(asset => {
+      const poolAddress = ppGetPoolAddress(asset);
+      const deployBlock = PP_DEPLOYMENT_BLOCKS[asset] || PP_DEPLOYMENT_BLOCKS.ETH;
+      const cached = _ppwEventCache[asset];
+      const fromBlock = cached ? cached.upToBlock + 1 : deployBlock;
+
+      // If cache is up-to-date, skip fetch
+      if (cached && fromBlock > latestBlock) {
+        return Promise.resolve({ asset, depositLogs: cached.depositLogs, withdrawnLogs: cached.withdrawnLogs });
+      }
+
+      const dFilter = { address: poolAddress, topics: [PP_POOL_EVENTS.getEvent('Deposited').topicHash], fromBlock, toBlock: latestBlock };
+      const wFilter = { address: poolAddress, topics: [PP_POOL_EVENTS.getEvent('Withdrawn').topicHash], fromBlock, toBlock: latestBlock };
+      return Promise.all([
+        ppGetLogsChunked(rpc, dFilter, fromBlock, latestBlock),
+        ppGetLogsChunked(rpc, wFilter, fromBlock, latestBlock)
+      ]).then(([newDLogs, newWLogs]) => {
+        // Merge with cached logs
+        const depositLogs = cached ? cached.depositLogs.concat(newDLogs) : newDLogs;
+        const withdrawnLogs = cached ? cached.withdrawnLogs.concat(newWLogs) : newWLogs;
+        // Update cache
+        _ppwEventCache[asset] = { depositLogs, withdrawnLogs, upToBlock: latestBlock };
+        return { asset, depositLogs, withdrawnLogs };
+      }).catch(e => {
+        console.warn(`Load: failed to fetch ${asset} events:`, e);
+        // Fall back to cached data if available
+        if (cached) return { asset, depositLogs: cached.depositLogs, withdrawnLogs: cached.withdrawnLogs };
+        return { asset, depositLogs: [], withdrawnLogs: [] };
+      });
+    });
+
+    const allEvents = await Promise.all(eventPromises);
+    if (_ppwLoadAbort.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    // Step 3: process each asset's events and build Pool Accounts
+    for (const { asset, depositLogs, withdrawnLogs } of allEvents) {
       if (_ppwLoadAbort.signal.aborted) break;
 
       const scope = ppComputeScope(asset);
       const poolAddress = ppGetPoolAddress(asset);
-      const fromBlock = PP_DEPLOYMENT_BLOCKS[asset] || PP_DEPLOYMENT_BLOCKS.ETH;
 
-      if (refreshLink) refreshLink.textContent = `Loading ${asset}\u2026 (Cancel)`;
+      if (refreshLink) refreshLink.textContent = `Processing ${asset}\u2026 (Cancel)`;
 
-      // Fetch all Deposited events for this pool
-      let depositEvents;
-      try {
-        const filter = { address: poolAddress, topics: [PP_POOL_EVENTS.getEvent('Deposited').topicHash], fromBlock, toBlock: latestBlock };
-        const rawLogs = await ppGetLogsChunked(rpc, filter, fromBlock, latestBlock);
-        depositEvents = new Map();
-        for (const log of rawLogs) {
-          try {
-            const parsed = PP_POOL_EVENTS.parseLog({ topics: log.topics, data: log.data });
-            if (parsed.name === 'Deposited') {
-              const pch = '0x' + BigInt(parsed.args._precommitmentHash).toString(16).padStart(64, '0');
-              depositEvents.set(pch, {
-                commitment: parsed.args._commitment,
-                label: parsed.args._label,
-                value: parsed.args._value,
-                txHash: log.transactionHash,
-                blockNumber: log.blockNumber,
-              });
-            }
-          } catch (parseErr) { console.warn('Load: failed to parse event log', parseErr); }
-        }
-      } catch (e) {
-        console.warn(`Load: failed to fetch ${asset} deposit events:`, e);
-        continue;
+      // Build deposit events map
+      const depositEvents = new Map();
+      for (const log of depositLogs) {
+        try {
+          const parsed = PP_POOL_EVENTS.parseLog({ topics: log.topics, data: log.data });
+          if (parsed.name === 'Deposited') {
+            const pch = '0x' + BigInt(parsed.args._precommitmentHash).toString(16).padStart(64, '0');
+            depositEvents.set(pch, {
+              commitment: parsed.args._commitment,
+              label: parsed.args._label,
+              value: parsed.args._value,
+              txHash: log.transactionHash,
+              blockNumber: log.blockNumber,
+            });
+          }
+        } catch (parseErr) { console.warn('Load: failed to parse event log', parseErr); }
       }
 
-      if (_ppwLoadAbort.signal.aborted) break;
-
-      // Fetch all Withdrawn events for this pool (for chain-following)
-      const withdrawnMap = new Map(); // spentNullifierHash → { value, newCommitment, txHash, blockNumber }
-      try {
-        const wFilter = { address: poolAddress, topics: [PP_POOL_EVENTS.getEvent('Withdrawn').topicHash], fromBlock, toBlock: latestBlock };
-        const wLogs = await ppGetLogsChunked(rpc, wFilter, fromBlock, latestBlock);
-        for (const log of wLogs) {
-          try {
-            const parsed = PP_POOL_EVENTS.parseLog({ topics: log.topics, data: log.data });
-            if (parsed.name === 'Withdrawn') {
-              const snullHex = '0x' + BigInt(parsed.args._spentNullifier).toString(16).padStart(64, '0');
-              withdrawnMap.set(snullHex, {
-                value: parsed.args._value,
-                newCommitment: parsed.args._newCommitment,
-                txHash: log.transactionHash,
-                blockNumber: log.blockNumber,
-              });
-            }
-          } catch (parseErr) { console.warn('Load: failed to parse withdrawal log', parseErr); }
-        }
-      } catch (e) {
-        console.warn(`Load: failed to fetch ${asset} withdrawal events:`, e);
-        // Continue without withdrawal data — deposits will show but chain following won't work
+      // Build withdrawn events map
+      const withdrawnMap = new Map();
+      for (const log of withdrawnLogs) {
+        try {
+          const parsed = PP_POOL_EVENTS.parseLog({ topics: log.topics, data: log.data });
+          if (parsed.name === 'Withdrawn') {
+            const snullHex = '0x' + BigInt(parsed.args._spentNullifier).toString(16).padStart(64, '0');
+            withdrawnMap.set(snullHex, {
+              value: parsed.args._value,
+              newCommitment: parsed.args._newCommitment,
+              txHash: log.transactionHash,
+              blockNumber: log.blockNumber,
+            });
+          }
+        } catch (parseErr) { console.warn('Load: failed to parse withdrawal log', parseErr); }
       }
 
       if (_ppwLoadAbort.signal.aborted) break;
@@ -9524,7 +10227,7 @@ function ppwSelectAccount(index) {
   };
 
   // Show withdrawal form with selected account label
-  const valStr = _ppwNote.value != null ? ppFormatAmountWei(_ppwNote.value, ppWrapAsset(noteAsset)) : '';
+  const valStr = _ppwNote.value != null ? ppFormatAmountWei(_ppwNote.value, noteAsset) : '';
   setText('ppwSelectedLabel', _ppwSelectedAccountLabel + (valStr ? ' \u00b7 ' + valStr + ' ' + noteAsset : ''));
   setShown('ppwParsed', true);
   ppwSyncWithdrawButtonState();
@@ -9539,6 +10242,75 @@ function ppwSelectAccount(index) {
   // Scroll to withdrawal form below the Pool Accounts list
   const form = $('ppwParsed');
   if (form) form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function ppwImportNote() {
+  const raw = $('ppwManualNote').value.trim();
+  if (!raw) { showStatus('Paste a deposit slip or note JSON', 'error'); return; }
+  let note;
+  try { note = JSON.parse(raw); } catch { showStatus('Invalid JSON', 'error'); return; }
+  if (!note.nullifier || !note.secret) { showStatus('JSON must contain nullifier and secret', 'error'); return; }
+
+  let nullifier, secret;
+  try { nullifier = BigInt(note.nullifier); secret = BigInt(note.secret); } catch { showStatus('Invalid nullifier or secret value', 'error'); return; }
+  const precommitment = poseidon2([nullifier, secret]);
+
+  const rawAsset = (note.asset || 'ETH').trim();
+  const rawUpper = rawAsset.toUpperCase();
+  const noteAsset = rawUpper === 'BOLD' ? 'BOLD' : rawUpper === 'WSTETH' ? 'wstETH' : 'ETH';
+
+  // Start with whatever the note/slip provides
+  let value = note.value != null ? BigInt(note.value) : null;
+  let label = note.label != null ? BigInt(note.label) : null;
+  let leafIndex = note.leafIndex != null ? Number(note.leafIndex) : null;
+  let commitment = note.commitment ?? null;
+
+  // If value/label missing but txHash present, resolve from on-chain receipt
+  if ((value == null || label == null) && note.txHash) {
+    try {
+      showStatus('Looking up deposit receipt on-chain...', 'success');
+      const rpc = await quoteRPC.call(r => r);
+      const receipt = await rpc.getTransactionReceipt(note.txHash);
+      if (receipt) {
+        const info = parsePPDepositReceipt(receipt);
+        if (info.value != null && value == null) value = BigInt(info.value);
+        if (info.label != null && label == null) label = BigInt(info.label);
+        if (info.leafIndex != null && leafIndex == null) leafIndex = Number(info.leafIndex);
+        if (info.commitment != null && commitment == null) commitment = '0x' + BigInt(info.commitment).toString(16).padStart(64, '0');
+      }
+    } catch (e) {
+      console.warn('Could not resolve deposit receipt:', e);
+    }
+  }
+
+  _ppwNote = {
+    nullifier, secret, precommitment, asset: noteAsset,
+    withdrawalIndex: note.withdrawalIndex ?? null,
+    leafIndex, value, label, commitment,
+  };
+  _ppwSelectedAccountLabel = 'Imported';
+
+  const valStr = _ppwNote.value != null ? ppFormatAmountWei(_ppwNote.value, noteAsset) : '';
+  setText('ppwSelectedLabel', 'Imported' + (valStr ? ' \u00b7 ' + valStr + ' ' + noteAsset : ' \u00b7 ' + noteAsset));
+  setText('ppwWithdrawAmtLabel', 'Withdraw Amount (' + noteAsset + ')');
+  setShown('ppwParsed', true);
+  ppwSyncWithdrawButtonState();
+  if (_ppwMode === 'relay') {
+    const egEl = $('ppwExtraGas');
+    if (noteAsset === 'ETH') { egEl.checked = false; egEl.disabled = true; }
+    else { egEl.disabled = false; }
+  }
+  ppwUpdatePreview();
+  $('ppwParsed').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  showStatus('Note imported. Fill in withdrawal details below.', 'success');
+}
+
+function ppwUploadNote(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => { $('ppwManualNote').value = e.target.result; ppwImportNote(); };
+  reader.readAsText(file);
 }
 
 function ppwCloseWithdrawForm() {

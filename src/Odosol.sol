@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
-contract Matcha {
-    address constant AH = 0x0000000000001fF3684f28c67538d4D072C22734; // AllowanceHolder (Cancun)
+contract Odosol {
+    address constant ODOS_ROUTER = 0x0D05a7D3448512B78fa8A9e46c4872C88C4a0D05; // Odos V3 SOR Router
 
-    function swap(address settler, address tokenIn, address tokenOut, address recipient, bytes calldata data)
+    function swap(address router, address tokenIn, address tokenOut, address recipient, bytes calldata data)
         public
         payable
     {
         uint256 value;
         if (tokenIn == address(0)) {
             value = address(this).balance;
-        } else if (allowance(tokenIn, address(this), AH) == 0) {
-            safeApprove(tokenIn, AH, type(uint256).max);
+        } else if (allowance(tokenIn, address(this), ODOS_ROUTER) == 0) {
+            safeApprove(tokenIn, ODOS_ROUTER, type(uint256).max);
         }
 
         assembly ("memory-safe") {
             let m := mload(0x40)
             calldatacopy(m, data.offset, data.length)
-            if iszero(call(gas(), settler, value, m, data.length, codesize(), 0x00)) {
+            if iszero(call(gas(), router, value, m, data.length, codesize(), 0x00)) {
                 returndatacopy(m, 0x00, returndatasize())
                 revert(m, returndatasize())
             }

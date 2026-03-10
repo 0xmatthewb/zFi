@@ -380,32 +380,84 @@ button.secondary:hover { background: var(--surface-hover); }
 .routes-toggle {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   cursor: pointer;
   user-select: none;
   color: var(--routes-fg);
   font-size: 12px;
-  margin-top: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--card-border);
 }
 .routes-toggle:hover { color: var(--routes-hover); }
+.routes-count {
+  font-size: 10px;
+  color: var(--fg-muted);
+  opacity: 0.7;
+}
 .routes-list {
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 12px;
   color: var(--routes-list);
 }
 .routes-list-item {
   display: flex;
   justify-content: space-between;
-  padding: 3px 0;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 6px;
+  transition: background 0.12s;
+}
+.routes-list-item { cursor: pointer; }
+.routes-list-item:hover { background: var(--surface-hover, rgba(0,0,0,0.03)); }
+.routes-list-item.route-selected { background: var(--surface-hover, rgba(0,0,0,0.04)); outline: 1.5px solid var(--badge-bg); }
+.routes-list-item.route-best {
+  color: var(--fg);
+  font-weight: 500;
+}
+.routes-list-item .route-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.routes-list-item .route-source-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.routes-list-item .route-amount {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .routes-list-item .best-badge {
   background: var(--badge-bg);
   color: var(--badge-fg);
-  font-size: 10px;
+  font-size: 9px;
   padding: 1px 5px;
-  margin-left: 6px;
-  letter-spacing: 0.03em;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  flex-shrink: 0;
 }
+.routes-list-item .route-diff {
+  font-size: 10px;
+  color: var(--fg-muted);
+  min-width: 3.5ch;
+  text-align: right;
+}
+.routes-list-item .route-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--badge-bg);
+  opacity: 0.15;
+  transition: width 0.3s ease;
+}
+.routes-list-item.route-best .route-bar { opacity: 0.35; }
 
 /* Loading spinner */
 .loading {
@@ -918,7 +970,7 @@ body.modal-open { overflow: hidden; }
 </div>
 
 <div id="swapTab">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span class="info-tip"><span class="info-icon" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span><span class="info-tooltip"><a href="https://github.com/zammdefi/zrouter" target="_blank" rel="noopener" style="color:inherit;font-weight:600">zRouter</a> is a fully on-chain DEX aggregator. Routes are discovered and optimized by zQuoter directly on the blockchain — no off-chain APIs, no solvers, no servers.<br><br>Aggregates Uniswap V2/V3/V4, SushiSwap, Curve, zAMM, and Lido with atomic multi-hop execution, split routing, and per-leg slippage protection.<br><br>Zero protocol fees. No intermediaries. Your trade goes directly from your wallet to the liquidity pools.</span></span></div>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span class="info-tip"><span class="info-icon" onclick="this.parentElement.classList.toggle('open');event.stopPropagation()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span><span class="info-tooltip"><a href="https://github.com/zammdefi/zrouter" target="_blank" rel="noopener" style="color:inherit;font-weight:600">zFi</a> is a meta DEX aggregator. Every quote races 10+ sources in parallel and picks the best price automatically — or you can choose manually.<br><br><b>External aggregators:</b> 0x, ParaSwap, KyberSwap, 1inch, Odos, OKX, CoW Protocol, Bebop, Enso, OpenOcean (Bitget coming soon).<br><br><b>On-chain quoter (zQuoter):</b> Unlike off-chain APIs, zQuoter discovers routes directly on the blockchain via Uniswap V2/V3/V4, SushiSwap, Curve, zAMM, and Lido — with atomic multi-hop, split routing, and per-leg slippage protection. No solvers, no servers, no API keys. Works even when every external API is down.<br><br>Zero protocol fees. No intermediaries. Your trade goes directly from your wallet to the pools.</span></span></div>
 
 <!-- Swap card -->
 <div class="swap-card">
@@ -989,10 +1041,11 @@ body.modal-open { overflow: hidden; }
   <div id="quoteRate" class="quote-rate" style="display:none"></div>
   <div id="allRoutesWrap" style="display:none">
     <div class="routes-toggle" onclick="toggleAllRoutes()">
-      <span class="chevron" id="routesChevron" style="font-size:9px">&#9654;</span>
+      <span class="chevron" id="routesChevron" style="font-size:9px">&#9660;</span>
       <span>All routes</span>
+      <span class="routes-count" id="routesCount"></span>
     </div>
-    <div id="allRoutesList" class="routes-list" style="display:none"></div>
+    <div id="allRoutesList" class="routes-list"></div>
   </div>
   <a id="calldataLink" href="#" target="_blank" rel="noopener" title="Preview calldata — final tx may differ slightly (fresh quote at execution)" style="display:none;font-size:11px;color:var(--fg-muted);text-decoration:none;opacity:0.6;transition:opacity 0.15s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">Inspect calldata &#8599;</a>
 </div>
@@ -1644,7 +1697,7 @@ const ONEINCHOL_IFACE = new ethers.Interface([
 // Odos / Odosol integration
 const ODOSOL_ADDRESS = "0x55B867886dc6DB50d40712204b9BFc4e21DB5479";
 const ODOS_API = "https://api.odos.xyz";
-const ODOS_ETH_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const ODOS_ETH_SENTINEL = "0x0000000000000000000000000000000000000000";
 const ODOSOL_IFACE = new ethers.Interface([
   "function swap(address router, address tokenIn, address tokenOut, address recipient, bytes data)",
 ]);
@@ -1679,6 +1732,26 @@ const COW_ORDER_TYPE = {
     { name: "buyTokenBalance", type: "string" },
   ]
 };
+// Bebop integration (JAM + PMM settlement)
+const BEBOPOL_ADDRESS = "0x2b07AA3a1F98Bc31D9bbE9EB0DE1CA37715751af";
+const BEBOP_API = "https://api.bebop.xyz/router/ethereum/v1";
+const BEBOPOL_IFACE = new ethers.Interface([
+  "function swap(address router, address tokenIn, address tokenOut, address recipient, bytes data)",
+]);
+// Enso integration
+const ENSOL_ADDRESS = "0xD6D4D5eE3139bF51Cbe06D7a2E116f4ab4d4Ee96";
+const ENSO_API = "https://api.enso.build/api/v1/shortcuts/route";
+const ENSO_ETH_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const ENSOL_IFACE = new ethers.Interface([
+  "function swap(address router, address tokenIn, address tokenOut, address recipient, bytes data)",
+]);
+// OpenOcean integration
+const OPENOCEANOL_ADDRESS = "0x2EA16Ac718FC437c57C8c74C3d708F0382483503";
+const OPENOCEAN_API = "https://open-api.openocean.finance";
+const OO_ETH_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const OPENOCEANOL_IFACE = new ethers.Interface([
+  "function swap(address router, address tokenIn, address tokenOut, address recipient, bytes data)",
+]);
 // V4 USDC/PNKSTR hookless pool params (fee=10000, tickSpacing=200)
 const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const ZAMM_HOOKED = "0x000000000000040470635EB91b7CE4D132D616eD";
@@ -4425,6 +4498,119 @@ async function getOkxQuote(sellToken, buyToken, sellAmount, slippageBps) {
   return json.data[0];
 }
 
+// Bebop API helpers
+function bebopToken(addr) {
+  return addr === ZERO_ADDRESS ? WETH_ADDRESS : addr;
+}
+async function getBebopPrice(sellToken, buyToken, sellAmount) {
+  if (BEBOPOL_ADDRESS === ZERO_ADDRESS) return null;
+  const sell = bebopToken(sellToken);
+  const buy = bebopToken(buyToken);
+  if (sell.toLowerCase() === buy.toLowerCase()) return null;
+  const ac = new AbortController();
+  const tid = setTimeout(() => ac.abort(), 4000);
+  try {
+    const params = new URLSearchParams({
+      sell_tokens: sell, buy_tokens: buy,
+      sell_amounts: sellAmount.toString(),
+      taker_address: BEBOPOL_ADDRESS,
+      gasless: 'false', approval_type: 'Standard',
+    });
+    const resp = await fetch(`${BEBOP_API}/quote?${params}`, {
+      headers: { 'Accept': 'application/json' },
+      signal: ac.signal,
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!data.routes?.length) return null;
+    const bestType = data.bestPrice;
+    const route = data.routes.find(r => r.type === bestType) || data.routes[0];
+    const q = route.quote;
+    if (!q?.buyTokens || !q?.tx) return null;
+    const buyInfo = Object.values(q.buyTokens)[0];
+    if (!buyInfo?.amount) return null;
+    return { buyAmount: buyInfo.amount, tx: q.tx };
+  } finally { clearTimeout(tid); }
+}
+async function getBebopQuote(sellToken, buyToken, sellAmount, slippageBps) {
+  // Bebop quote endpoint returns ready-to-use tx data (same as price but with taker)
+  return getBebopPrice(sellToken, buyToken, sellAmount);
+}
+
+// Enso API helpers
+function ensoToken(addr) {
+  return addr === ZERO_ADDRESS ? ENSO_ETH_SENTINEL : addr;
+}
+async function _ensoFetch(sellToken, buyToken, sellAmount, slippageBps) {
+  if (ENSOL_ADDRESS === ZERO_ADDRESS) return null;
+  const ac = new AbortController();
+  const tid = setTimeout(() => ac.abort(), 4000);
+  try {
+    const params = new URLSearchParams({
+      chainId: '1', fromAddress: ENSOL_ADDRESS,
+      tokenIn: ensoToken(sellToken), tokenOut: ensoToken(buyToken),
+      amountIn: sellAmount.toString(), slippage: String(slippageBps || 50),
+      routingStrategy: 'router',
+    });
+    const resp = await fetch(`${ENSO_API}?${params}`, {
+      headers: { 'Accept': 'application/json' },
+      signal: ac.signal,
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!data.amountOut || !data.tx) return null;
+    return { amountOut: data.amountOut, tx: data.tx };
+  } finally { clearTimeout(tid); }
+}
+async function getEnsoPrice(sellToken, buyToken, sellAmount) {
+  return _ensoFetch(sellToken, buyToken, sellAmount, 50);
+}
+async function getEnsoQuote(sellToken, buyToken, sellAmount, slippageBps) {
+  return _ensoFetch(sellToken, buyToken, sellAmount, slippageBps);
+}
+
+// OpenOcean API helpers
+function ooToken(addr) {
+  return addr === ZERO_ADDRESS ? OO_ETH_SENTINEL : addr;
+}
+async function getOpenOceanPrice(sellToken, buyToken, sellAmount) {
+  if (OPENOCEANOL_ADDRESS === ZERO_ADDRESS) return null;
+  const ac = new AbortController();
+  const tid = setTimeout(() => ac.abort(), 4000);
+  try {
+    const params = new URLSearchParams({
+      inTokenAddress: ooToken(sellToken), outTokenAddress: ooToken(buyToken),
+      amountDecimals: sellAmount.toString(), gasPriceDecimals: '20000000000',
+      slippage: '0.5', account: OPENOCEANOL_ADDRESS,
+    });
+    const resp = await fetch(`${OPENOCEAN_API}/v4/eth/swap?${params}`, { signal: ac.signal });
+    if (!resp.ok) return null;
+    const json = await resp.json();
+    const d = json?.data;
+    if (!d?.outAmount || !d?.to || !d?.data) return null;
+    return { outAmount: d.outAmount, tx: { to: d.to, data: d.data, value: d.value || '0' } };
+  } finally { clearTimeout(tid); }
+}
+async function getOpenOceanQuote(sellToken, buyToken, sellAmount, slippageBps) {
+  if (OPENOCEANOL_ADDRESS === ZERO_ADDRESS) return null;
+  const ac = new AbortController();
+  const tid = setTimeout(() => ac.abort(), 5000);
+  try {
+    const params = new URLSearchParams({
+      inTokenAddress: ooToken(sellToken), outTokenAddress: ooToken(buyToken),
+      amountDecimals: sellAmount.toString(), gasPriceDecimals: '20000000000',
+      slippage: (Number(slippageBps) / 100).toString(),
+      account: OPENOCEANOL_ADDRESS,
+    });
+    const resp = await fetch(`${OPENOCEAN_API}/v4/eth/swap?${params}`, { signal: ac.signal });
+    if (!resp.ok) return null;
+    const json = await resp.json();
+    const d = json?.data;
+    if (!d?.outAmount || !d?.to || !d?.data) return null;
+    return { outAmount: d.outAmount, tx: { to: d.to, data: d.data, value: d.value || '0' } };
+  } finally { clearTimeout(tid); }
+}
+
 // CoW Protocol API helpers (ERC-20 only — no native ETH)
 function cowToken(addr) {
   // CoW is ERC-20 only — substitute WETH for native ETH on sell side
@@ -4671,6 +4857,9 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     const inchPriceP = cachedFetch(`inch:${_cacheKey}`, () => get1inchPrice(fromData.address, toData.address, amountIn)).catch(() => null);
     const odosPriceP = cachedFetch(`odos:${_cacheKey}`, () => getOdosPrice(fromData.address, toData.address, amountIn)).catch(() => null);
     const okxPriceP = cachedFetch(`okx:${_cacheKey}`, () => getOkxPrice(fromData.address, toData.address, amountIn)).catch(() => null);
+    const bebopPriceP = cachedFetch(`bebop:${_cacheKey}`, () => getBebopPrice(fromData.address, toData.address, amountIn)).catch(() => null);
+    const ensoPriceP = cachedFetch(`enso:${_cacheKey}`, () => getEnsoPrice(fromData.address, toData.address, amountIn)).catch(() => null);
+    const ooPriceP = cachedFetch(`oo:${_cacheKey}`, () => getOpenOceanPrice(fromData.address, toData.address, amountIn)).catch(() => null);
     // Merge light + heavy entries into a single Multicall3 batch (1 RPC call instead of 2)
     const heavyOffset = mc3Entries.length;
     const allEntries = [...mc3Entries, ...heavyEntries];
@@ -5026,30 +5215,45 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
       }
     }
 
+    // Snapshot on-chain winner state before external APIs may override it
+    result._onChainState = {
+      expectedOutput: result.expectedOutput,
+      multicall: result.multicall,
+      calls: result.calls,
+      msgValue: result.msgValue,
+      isTwoHop: result.isTwoHop,
+      isSplit: result.isSplit,
+      splitLegs: result.splitLegs,
+      sourceA: result.sourceA,
+      sourceB: result.sourceB,
+    };
+
     // External APIs: resolve all in parallel
-    const [oxPrice, psPrice, ksPrice, cowPrice, inchPrice, odosPrice, okxPrice] = await Promise.all([ox0xPriceP, psPriceP, ksPriceP, cowPriceP, inchPriceP, odosPriceP, okxPriceP]);
+    const [oxPrice, psPrice, ksPrice, cowPrice, inchPrice, odosPrice, okxPrice, bebopPrice, ensoPrice, ooPrice] = await Promise.all([ox0xPriceP, psPriceP, ksPriceP, cowPriceP, inchPriceP, odosPriceP, okxPriceP, bebopPriceP, ensoPriceP, ooPriceP]);
+
+    // Helper to reset all external aggregator winner flags
+    function _resetExtFlags(r) {
+      r.is0x = false; r.isParaswap = false; r.isKyber = false; r.isCow = false;
+      r.is1inch = false; r.isOdos = false; r.isOkx = false;
+      r.isBebop = false; r.isEnso = false; r.isOpenOcean = false;
+    }
+    function _setExtWinner(r, flag, sourceA, extra) {
+      _resetExtFlags(r);
+      r[flag] = true;
+      r.sourceA = sourceA; r.sourceB = null;
+      r.isTwoHop = false; r.isSplit = false; r.splitLegs = null;
+      Object.assign(r, extra);
+    }
 
     // 0x / Matcha: compare against all sources
     if (oxPrice && oxPrice.buyAmount) {
       const oxOut = BigInt(oxPrice.buyAmount);
       if (result.allQuotes) {
-        result.allQuotes.push({ source: "0x", sourceId: -2, feeBps: 0n, amountIn, amountOut: oxOut });
+        result.allQuotes.push({ source: "0x", sourceId: -2, feeBps: 0n, amountIn, amountOut: oxOut, _winnerArgs: ['is0x', '0x', { ox: oxPrice }] });
       }
       if (oxOut > result.expectedOutput) {
         result.expectedOutput = oxOut;
-        result.is0x = true;
-        result.isParaswap = false;
-        result.isKyber = false;
-        result.isCow = false;
-        result.is1inch = false;
-        result.isOdos = false;
-        result.isOkx = false;
-        result.ox = oxPrice;
-        result.sourceA = "0x";
-        result.sourceB = null;
-        result.isTwoHop = false;
-        result.isSplit = false;
-        result.splitLegs = null;
+        _setExtWinner(result, 'is0x', '0x', { ox: oxPrice });
       }
     }
 
@@ -5057,23 +5261,11 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     if (psPrice && psPrice.destAmount) {
       const psOut = BigInt(psPrice.destAmount);
       if (result.allQuotes) {
-        result.allQuotes.push({ source: "ParaSwap", sourceId: -3, feeBps: 0n, amountIn, amountOut: psOut });
+        result.allQuotes.push({ source: "ParaSwap", sourceId: -3, feeBps: 0n, amountIn, amountOut: psOut, _winnerArgs: ['isParaswap', 'ParaSwap', { psPriceRoute: psPrice }] });
       }
       if (psOut > result.expectedOutput) {
         result.expectedOutput = psOut;
-        result.isParaswap = true;
-        result.is0x = false;
-        result.isKyber = false;
-        result.isCow = false;
-        result.is1inch = false;
-        result.isOdos = false;
-        result.isOkx = false;
-        result.psPriceRoute = psPrice;
-        result.sourceA = "ParaSwap";
-        result.sourceB = null;
-        result.isTwoHop = false;
-        result.isSplit = false;
-        result.splitLegs = null;
+        _setExtWinner(result, 'isParaswap', 'ParaSwap', { psPriceRoute: psPrice });
       }
     }
 
@@ -5081,23 +5273,11 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     if (ksPrice && ksPrice.amountOut) {
       const ksOut = BigInt(ksPrice.amountOut);
       if (result.allQuotes) {
-        result.allQuotes.push({ source: "KyberSwap", sourceId: -4, feeBps: 0n, amountIn, amountOut: ksOut });
+        result.allQuotes.push({ source: "KyberSwap", sourceId: -4, feeBps: 0n, amountIn, amountOut: ksOut, _winnerArgs: ['isKyber', 'KyberSwap', { ksRouteSummary: ksPrice }] });
       }
       if (ksOut > result.expectedOutput) {
         result.expectedOutput = ksOut;
-        result.isKyber = true;
-        result.is0x = false;
-        result.isParaswap = false;
-        result.isCow = false;
-        result.is1inch = false;
-        result.isOdos = false;
-        result.isOkx = false;
-        result.ksRouteSummary = ksPrice;
-        result.sourceA = "KyberSwap";
-        result.sourceB = null;
-        result.isTwoHop = false;
-        result.isSplit = false;
-        result.splitLegs = null;
+        _setExtWinner(result, 'isKyber', 'KyberSwap', { ksRouteSummary: ksPrice });
       }
     }
 
@@ -5105,23 +5285,11 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     if (cowPrice && cowPrice.quote && cowPrice.quote.buyAmount) {
       const cowOut = BigInt(cowPrice.quote.buyAmount);
       if (result.allQuotes) {
-        result.allQuotes.push({ source: "CoW Protocol", sourceId: -5, feeBps: 0n, amountIn, amountOut: cowOut });
+        result.allQuotes.push({ source: "CoW Protocol", sourceId: -5, feeBps: 0n, amountIn, amountOut: cowOut, _winnerArgs: ['isCow', 'CoW Protocol', { cowQuote: cowPrice.quote }] });
       }
       if (cowOut > result.expectedOutput) {
         result.expectedOutput = cowOut;
-        result.isCow = true;
-        result.is0x = false;
-        result.isParaswap = false;
-        result.isKyber = false;
-        result.is1inch = false;
-        result.isOdos = false;
-        result.isOkx = false;
-        result.cowQuote = cowPrice.quote;
-        result.sourceA = "CoW Protocol";
-        result.sourceB = null;
-        result.isTwoHop = false;
-        result.isSplit = false;
-        result.splitLegs = null;
+        _setExtWinner(result, 'isCow', 'CoW Protocol', { cowQuote: cowPrice.quote });
       }
     }
 
@@ -5129,23 +5297,11 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     if (inchPrice && inchPrice.dstAmount) {
       const inchOut = BigInt(inchPrice.dstAmount);
       if (result.allQuotes) {
-        result.allQuotes.push({ source: "1inch", sourceId: -6, feeBps: 0n, amountIn, amountOut: inchOut });
+        result.allQuotes.push({ source: "1inch", sourceId: -6, feeBps: 0n, amountIn, amountOut: inchOut, _winnerArgs: ['is1inch', '1inch', { inchQuote: inchPrice }] });
       }
       if (inchOut > result.expectedOutput) {
         result.expectedOutput = inchOut;
-        result.is1inch = true;
-        result.is0x = false;
-        result.isParaswap = false;
-        result.isKyber = false;
-        result.isCow = false;
-        result.isOdos = false;
-        result.isOkx = false;
-        result.inchQuote = inchPrice;
-        result.sourceA = "1inch";
-        result.sourceB = null;
-        result.isTwoHop = false;
-        result.isSplit = false;
-        result.splitLegs = null;
+        _setExtWinner(result, 'is1inch', '1inch', { inchQuote: inchPrice });
       }
     }
 
@@ -5153,24 +5309,11 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     if (odosPrice && odosPrice.outAmounts && odosPrice.outAmounts[0]) {
       const odosOut = BigInt(odosPrice.outAmounts[0]);
       if (result.allQuotes) {
-        result.allQuotes.push({ source: "Odos", sourceId: -7, feeBps: 0n, amountIn, amountOut: odosOut });
+        result.allQuotes.push({ source: "Odos", sourceId: -7, feeBps: 0n, amountIn, amountOut: odosOut, _winnerArgs: ['isOdos', 'Odos', { odosPathId: odosPrice.pathId, odosOutAmount: odosOut }] });
       }
       if (odosOut > result.expectedOutput) {
         result.expectedOutput = odosOut;
-        result.isOdos = true;
-        result.is0x = false;
-        result.isParaswap = false;
-        result.isKyber = false;
-        result.isCow = false;
-        result.is1inch = false;
-        result.isOkx = false;
-        result.odosPathId = odosPrice.pathId;
-        result.odosOutAmount = odosOut;
-        result.sourceA = "Odos";
-        result.sourceB = null;
-        result.isTwoHop = false;
-        result.isSplit = false;
-        result.splitLegs = null;
+        _setExtWinner(result, 'isOdos', 'Odos', { odosPathId: odosPrice.pathId, odosOutAmount: odosOut });
       }
     }
 
@@ -5178,23 +5321,47 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     if (okxPrice && okxPrice.toTokenAmount) {
       const okxOut = BigInt(okxPrice.toTokenAmount);
       if (result.allQuotes) {
-        result.allQuotes.push({ source: "OKX", sourceId: -8, feeBps: 0n, amountIn, amountOut: okxOut });
+        result.allQuotes.push({ source: "OKX", sourceId: -8, feeBps: 0n, amountIn, amountOut: okxOut, _winnerArgs: ['isOkx', 'OKX', { okxOutAmount: okxOut }] });
       }
       if (okxOut > result.expectedOutput) {
         result.expectedOutput = okxOut;
-        result.isOkx = true;
-        result.is0x = false;
-        result.isParaswap = false;
-        result.isKyber = false;
-        result.isCow = false;
-        result.is1inch = false;
-        result.isOdos = false;
-        result.okxOutAmount = okxOut;
-        result.sourceA = "OKX";
-        result.sourceB = null;
-        result.isTwoHop = false;
-        result.isSplit = false;
-        result.splitLegs = null;
+        _setExtWinner(result, 'isOkx', 'OKX', { okxOutAmount: okxOut });
+      }
+    }
+
+    // Bebop: compare against all sources
+    if (bebopPrice && bebopPrice.buyAmount) {
+      const bebopOut = BigInt(bebopPrice.buyAmount);
+      if (result.allQuotes) {
+        result.allQuotes.push({ source: "Bebop", sourceId: -9, feeBps: 0n, amountIn, amountOut: bebopOut, _winnerArgs: ['isBebop', 'Bebop', { bebopQuote: bebopPrice, bebopOutAmount: bebopOut }] });
+      }
+      if (bebopOut > result.expectedOutput) {
+        result.expectedOutput = bebopOut;
+        _setExtWinner(result, 'isBebop', 'Bebop', { bebopQuote: bebopPrice, bebopOutAmount: bebopOut });
+      }
+    }
+
+    // Enso: compare against all sources
+    if (ensoPrice && ensoPrice.amountOut) {
+      const ensoOut = BigInt(ensoPrice.amountOut);
+      if (result.allQuotes) {
+        result.allQuotes.push({ source: "Enso", sourceId: -10, feeBps: 0n, amountIn, amountOut: ensoOut, _winnerArgs: ['isEnso', 'Enso', { ensoQuote: ensoPrice, ensoOutAmount: ensoOut }] });
+      }
+      if (ensoOut > result.expectedOutput) {
+        result.expectedOutput = ensoOut;
+        _setExtWinner(result, 'isEnso', 'Enso', { ensoQuote: ensoPrice, ensoOutAmount: ensoOut });
+      }
+    }
+
+    // OpenOcean: compare against all sources
+    if (ooPrice && ooPrice.outAmount) {
+      const ooOut = BigInt(ooPrice.outAmount);
+      if (result.allQuotes) {
+        result.allQuotes.push({ source: "OpenOcean", sourceId: -11, feeBps: 0n, amountIn, amountOut: ooOut, _winnerArgs: ['isOpenOcean', 'OpenOcean', { ooQuote: ooPrice, ooOutAmount: ooOut }] });
+      }
+      if (ooOut > result.expectedOutput) {
+        result.expectedOutput = ooOut;
+        _setExtWinner(result, 'isOpenOcean', 'OpenOcean', { ooQuote: ooPrice, ooOutAmount: ooOut });
       }
     }
 
@@ -5219,6 +5386,15 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     } else if (result.isOkx) {
       result._firmQuoteP = cachedFetch(`okx-firm:${_cacheKey}:${_slippage}`,
         () => getOkxQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
+    } else if (result.isBebop) {
+      result._firmQuoteP = cachedFetch(`bebop-firm:${_cacheKey}:${_slippage}`,
+        () => getBebopQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
+    } else if (result.isEnso) {
+      result._firmQuoteP = cachedFetch(`enso-firm:${_cacheKey}:${_slippage}`,
+        () => getEnsoQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
+    } else if (result.isOpenOcean) {
+      result._firmQuoteP = cachedFetch(`oo-firm:${_cacheKey}:${_slippage}`,
+        () => getOpenOceanQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
     }
 
     return result;
@@ -5488,12 +5664,26 @@ async function getExactOutQuote(outputAmountStr, fromSym, toSym) {
       }
     }
 
+    // Snapshot on-chain state before ParaSwap may override
+    result._onChainState = {
+      expectedOutput: result.expectedOutput,
+      requiredInput: result.requiredInput,
+      multicall: result.multicall,
+      calls: result.calls,
+      msgValue: result.msgValue,
+      isTwoHop: result.isTwoHop,
+      isSplit: result.isSplit,
+      splitLegs: result.splitLegs,
+      sourceA: result.sourceA,
+      sourceB: result.sourceB,
+    };
+
     // ParaSwap exact-out: compare srcAmount (lower wins)
     const psPrice = await psPriceP;
     if (psPrice && psPrice.srcAmount) {
       const psIn = BigInt(psPrice.srcAmount);
       if (result.allQuotes) {
-        result.allQuotes.push({ source: "ParaSwap", sourceId: -3, feeBps: 0n, amountIn: psIn, amountOut });
+        result.allQuotes.push({ source: "ParaSwap", sourceId: -3, feeBps: 0n, amountIn: psIn, amountOut, _winnerArgs: ['isParaswap', 'ParaSwap', { psPriceRoute: psPrice }] });
       }
       if (psIn > 0n && psIn < result.requiredInput) {
         result.requiredInput = psIn;
@@ -5533,7 +5723,7 @@ function toggleAllRoutes() {
   const list = $('allRoutesList');
   const chev = $('routesChevron');
   const open = list.style.display !== 'none';
-  list.style.display = open ? 'none' : 'block';
+  list.style.display = open ? 'none' : '';
   chev.innerHTML = open ? '&#9654;' : '&#9660;';
 }
 
@@ -5544,31 +5734,121 @@ function displayAllRoutes(quote, toSym, isExactOut = false, fromSym = null) {
     setShown(wrap, false);
     return;
   }
+  // Track which route index is currently selected (for highlighting)
+  const selIdx = quote._manualIdx ?? -1;
   if (isExactOut && fromSym) {
-    // Exact-out: show required input per source (lower = better)
     const fromData = tokens[fromSym];
     const sorted = [...quote.allQuotes].sort((a, b) => (a.amountIn < b.amountIn ? -1 : a.amountIn > b.amountIn ? 1 : 0));
     const bestAmt = sorted[0].amountIn;
-    list.innerHTML = sorted.map(q => {
+    list.innerHTML = sorted.map((q, si) => {
+      const origIdx = quote.allQuotes.indexOf(q);
       const inp = fmt(ethers.formatUnits(q.amountIn, fromData.decimals));
-      const badge = q.amountIn === bestAmt ? '<span class="best-badge">best</span>' : '';
+      const isBest = q.amountIn === bestAmt;
+      const isSelected = selIdx >= 0 ? origIdx === selIdx : isBest;
+      const badge = isBest ? '<span class="best-badge">best</span>' : '';
       const fee = Number(q.feeBps);
       const feeLabel = fee > 0 ? ` (${fee >= 100 ? (fee / 100) + '%' : fee + 'bp'})` : '';
-      return `<div class="routes-list-item"><span>${escText(q.source)}${escText(feeLabel)}</span><span>${inp} ${escText(fromData.symbol)}${badge}</span></div>`;
+      const diff = bestAmt > 0n && !isBest
+        ? '+' + ((Number(q.amountIn - bestAmt) * 10000 / Number(bestAmt)) / 100).toFixed(2) + '%'
+        : '';
+      return `<div class="routes-list-item${isSelected ? ' route-selected' : ''}${isBest ? ' route-best' : ''}" data-route-idx="${origIdx}">` +
+        `<span class="route-source"><span class="route-source-name">${escText(q.source)}${escText(feeLabel)}</span></span>` +
+        `<span class="route-amount">${diff ? '<span class="route-diff">' + diff + '</span>' : ''}${inp} ${escText(fromData.symbol)}${badge}</span>` +
+        `</div>`;
     }).join('');
   } else {
     const toData = tokens[toSym];
     const sorted = [...quote.allQuotes].sort((a, b) => (b.amountOut > a.amountOut ? 1 : b.amountOut < a.amountOut ? -1 : 0));
     const bestAmt = sorted[0].amountOut;
-    list.innerHTML = sorted.map(q => {
+    list.innerHTML = sorted.map((q, si) => {
+      const origIdx = quote.allQuotes.indexOf(q);
       const out = fmt(ethers.formatUnits(q.amountOut, toData.decimals));
-      const badge = q.amountOut === bestAmt ? '<span class="best-badge">best</span>' : '';
+      const isBest = q.amountOut === bestAmt;
+      const isSelected = selIdx >= 0 ? origIdx === selIdx : isBest;
+      const badge = isBest ? '<span class="best-badge">best</span>' : '';
       const fee = Number(q.feeBps);
       const feeLabel = fee > 0 ? ` (${fee >= 100 ? (fee / 100) + '%' : fee + 'bp'})` : '';
-      return `<div class="routes-list-item"><span>${escText(q.source)}${escText(feeLabel)}</span><span>${out} ${escText(toData.symbol)}${badge}</span></div>`;
+      const diff = bestAmt > 0n && !isBest
+        ? '-' + ((Number(bestAmt - q.amountOut) * 10000 / Number(bestAmt)) / 100).toFixed(2) + '%'
+        : '';
+      return `<div class="routes-list-item${isSelected ? ' route-selected' : ''}${isBest ? ' route-best' : ''}" data-route-idx="${origIdx}">` +
+        `<span class="route-source"><span class="route-source-name">${escText(q.source)}${escText(feeLabel)}</span></span>` +
+        `<span class="route-amount">${diff ? '<span class="route-diff">' + diff + '</span>' : ''}${out} ${escText(toData.symbol)}${badge}</span>` +
+        `</div>`;
     }).join('');
   }
+  // Click handler for manual route selection
+  list.onclick = (e) => {
+    const item = e.target.closest('[data-route-idx]');
+    if (!item) return;
+    const idx = Number(item.dataset.routeIdx);
+    _selectRoute(idx);
+  };
   setShown(wrap, true);
+}
+
+// Manual route selection: apply clicked route to _quoteResult and re-render
+function _selectRoute(idx) {
+  const q = _quoteResult;
+  if (!q || !q.allQuotes || !q.allQuotes[idx]) return;
+  const picked = q.allQuotes[idx];
+
+  // External aggregator route (sourceId < 0, has _winnerArgs)
+  if (picked._winnerArgs) {
+    const [flag, sourceA, extra] = picked._winnerArgs;
+    // Reset all ext flags
+    q.is0x = false; q.isParaswap = false; q.isKyber = false; q.isCow = false;
+    q.is1inch = false; q.isOdos = false; q.isOkx = false;
+    q.isBebop = false; q.isEnso = false; q.isOpenOcean = false;
+    q[flag] = true;
+    q.sourceA = sourceA; q.sourceB = null;
+    q.isTwoHop = false; q.isSplit = false; q.splitLegs = null;
+    Object.assign(q, extra);
+    q.expectedOutput = picked.amountOut;
+  } else if (q._onChainState) {
+    // On-chain route: restore snapshot
+    q.is0x = false; q.isParaswap = false; q.isKyber = false; q.isCow = false;
+    q.is1inch = false; q.isOdos = false; q.isOkx = false;
+    q.isBebop = false; q.isEnso = false; q.isOpenOcean = false;
+    Object.assign(q, q._onChainState);
+    // Note: on-chain route selection beyond "best on-chain" isn't supported
+    // since the multicall was built for the best on-chain route. We restore
+    // the on-chain winner state and update the displayed output.
+    q.expectedOutput = picked.amountOut;
+    q.sourceA = picked.source;
+    q.sourceB = null;
+  }
+
+  // Mark manual selection
+  q._manualIdx = idx;
+  // Clear prefetched firm quote (will re-fetch at swap time)
+  q._firmQuoteP = null;
+
+  // Re-render UI
+  const toSym = toToken;
+  const fromSym = fromToken;
+  const toData = tokens[toSym];
+  const fromData = tokens[fromSym];
+  const isExactOut = q.exactOut || false;
+
+  // Update output display
+  const dstEl = isExactOut ? $('fromAmount') : $('toAmount');
+  if (isExactOut && fromData) {
+    const inRaw = ethers.formatUnits(q.requiredInput || picked.amountIn, fromData.decimals);
+    dstEl.value = fmtOutput(inRaw);
+  } else if (toData) {
+    const outRaw = ethers.formatUnits(q.expectedOutput, toData.decimals);
+    dstEl.value = fmtOutput(outRaw);
+  }
+
+  // Update route label
+  const route = q.isSplit ? formatSplitRoute(q.splitLegs)
+    : q.isTwoHop ? `${q.sourceA} + ${q.sourceB}`
+    : q.sourceA;
+  fitRouteText(route);
+
+  // Re-render routes list with new selection
+  displayAllRoutes(q, toSym, isExactOut, isExactOut ? fromSym : null);
 }
 
 // ---- Price impact via spot rate ----
@@ -6375,6 +6655,123 @@ async function executeSwap() {
       }
     }
 
+    // Bebop / Bebopol execution: fetch firm quote and build snwap multicall
+    if (quote.isBebop) {
+      swapBtn.textContent = "Fetching Bebop route...";
+      const toData = tokens[toSnap];
+      const bebopQ = (quote._firmQuoteP && quote._firmSlippage === slippageBps)
+        ? await quote._firmQuoteP
+        : await getBebopQuote(fromData.address, toData.address, amountIn, slippageBps);
+      if (!bebopQ || !bebopQ.tx) {
+        if (!quote.multicall) throw new Error("Bebop quote unavailable and no on-chain route");
+        quote.isBebop = false;
+      } else {
+        const isEthIn = fromData.address === ZERO_ADDRESS;
+        const receiver = getReceiver();
+        const bebopolData = BEBOPOL_IFACE.encodeFunctionData('swap', [
+          bebopQ.tx.to,
+          fromData.address,
+          toData.address,
+          receiver,
+          bebopQ.tx.data,
+        ]);
+        const bebopMinBuy = quote.bebopOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+        const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+          fromData.address,
+          isEthIn ? 0n : amountIn,
+          receiver,
+          toData.address,
+          bebopMinBuy,
+          BEBOPOL_ADDRESS,
+          bebopolData,
+        ]);
+        txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+        quote.multicall = txData;
+        quote.calls = [snwapCall];
+        quote.msgValue = isEthIn ? amountIn : 0n;
+        quote._bebopMinBuy = bebopMinBuy;
+        quote._bebopBebopolData = bebopolData;
+      }
+    }
+
+    // Enso / Ensol execution: fetch firm quote and build snwap multicall
+    if (quote.isEnso) {
+      swapBtn.textContent = "Fetching Enso route...";
+      const toData = tokens[toSnap];
+      const ensoQ = (quote._firmQuoteP && quote._firmSlippage === slippageBps)
+        ? await quote._firmQuoteP
+        : await getEnsoQuote(fromData.address, toData.address, amountIn, slippageBps);
+      if (!ensoQ || !ensoQ.tx) {
+        if (!quote.multicall) throw new Error("Enso quote unavailable and no on-chain route");
+        quote.isEnso = false;
+      } else {
+        const isEthIn = fromData.address === ZERO_ADDRESS;
+        const receiver = getReceiver();
+        const ensolData = ENSOL_IFACE.encodeFunctionData('swap', [
+          ensoQ.tx.to,
+          fromData.address,
+          toData.address,
+          receiver,
+          ensoQ.tx.data,
+        ]);
+        const ensoMinBuy = quote.ensoOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+        const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+          fromData.address,
+          isEthIn ? 0n : amountIn,
+          receiver,
+          toData.address,
+          ensoMinBuy,
+          ENSOL_ADDRESS,
+          ensolData,
+        ]);
+        txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+        quote.multicall = txData;
+        quote.calls = [snwapCall];
+        quote.msgValue = isEthIn ? amountIn : 0n;
+        quote._ensoMinBuy = ensoMinBuy;
+        quote._ensoEnsolData = ensolData;
+      }
+    }
+
+    // OpenOcean / OpenOceanol execution: fetch firm quote and build snwap multicall
+    if (quote.isOpenOcean) {
+      swapBtn.textContent = "Fetching OpenOcean route...";
+      const toData = tokens[toSnap];
+      const ooQ = (quote._firmQuoteP && quote._firmSlippage === slippageBps)
+        ? await quote._firmQuoteP
+        : await getOpenOceanQuote(fromData.address, toData.address, amountIn, slippageBps);
+      if (!ooQ || !ooQ.tx) {
+        if (!quote.multicall) throw new Error("OpenOcean quote unavailable and no on-chain route");
+        quote.isOpenOcean = false;
+      } else {
+        const isEthIn = fromData.address === ZERO_ADDRESS;
+        const receiver = getReceiver();
+        const openoceanlData = OPENOCEANOL_IFACE.encodeFunctionData('swap', [
+          ooQ.tx.to,
+          fromData.address,
+          toData.address,
+          receiver,
+          ooQ.tx.data,
+        ]);
+        const ooMinBuy = quote.ooOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+        const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+          fromData.address,
+          isEthIn ? 0n : amountIn,
+          receiver,
+          toData.address,
+          ooMinBuy,
+          OPENOCEANOL_ADDRESS,
+          openoceanlData,
+        ]);
+        txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+        quote.multicall = txData;
+        quote.calls = [snwapCall];
+        quote.msgValue = isEthIn ? amountIn : 0n;
+        quote._ooMinBuy = ooMinBuy;
+        quote._ooOpenoceanlData = openoceanlData;
+      }
+    }
+
     // CoW Protocol / Cowol execution: fetch firm quote, build snwap deposit + post order after tx
     if (quote.isCow) {
       swapBtn.textContent = "Fetching CoW quote...";
@@ -6450,7 +6847,7 @@ async function executeSwap() {
             let permitInnerCalls = quote.calls || decodeMulticallCalls(quote.multicall);
             // For aggregator swaps, re-fetch firm quote after signing (user may have
             // spent time in wallet popup, expiring the baked-in aggregator calldata).
-            const isAggQuote = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx;
+            const isAggQuote = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx || quote.isBebop || quote.isEnso || quote.isOpenOcean;
             if (isAggQuote) {
               try {
                 const toData = tokens[toSnap];
@@ -6530,6 +6927,42 @@ async function executeSwap() {
                       receiver, toData.address, okxMinBuy, OKXOL_ADDRESS, okxolData,
                     ]);
                   }
+                } else if (quote.isBebop) {
+                  const bebopQ = await getBebopQuote(fromData.address, toData.address, amountIn, slippageBps);
+                  if (bebopQ && bebopQ.tx) {
+                    const bebopolData = BEBOPOL_IFACE.encodeFunctionData('swap', [
+                      bebopQ.tx.to, fromData.address, toData.address, receiver, bebopQ.tx.data,
+                    ]);
+                    const bebopMinBuy = quote.bebopOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                    freshAggCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                      fromData.address, fromData.address === ZERO_ADDRESS ? 0n : amountIn,
+                      receiver, toData.address, bebopMinBuy, BEBOPOL_ADDRESS, bebopolData,
+                    ]);
+                  }
+                } else if (quote.isEnso) {
+                  const ensoQ = await getEnsoQuote(fromData.address, toData.address, amountIn, slippageBps);
+                  if (ensoQ && ensoQ.tx) {
+                    const ensolData = ENSOL_IFACE.encodeFunctionData('swap', [
+                      ensoQ.tx.to, fromData.address, toData.address, receiver, ensoQ.tx.data,
+                    ]);
+                    const ensoMinBuy = quote.ensoOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                    freshAggCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                      fromData.address, fromData.address === ZERO_ADDRESS ? 0n : amountIn,
+                      receiver, toData.address, ensoMinBuy, ENSOL_ADDRESS, ensolData,
+                    ]);
+                  }
+                } else if (quote.isOpenOcean) {
+                  const ooQ = await getOpenOceanQuote(fromData.address, toData.address, amountIn, slippageBps);
+                  if (ooQ && ooQ.tx) {
+                    const openoceanlData = OPENOCEANOL_IFACE.encodeFunctionData('swap', [
+                      ooQ.tx.to, fromData.address, toData.address, receiver, ooQ.tx.data,
+                    ]);
+                    const ooMinBuy = quote.ooOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                    freshAggCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                      fromData.address, fromData.address === ZERO_ADDRESS ? 0n : amountIn,
+                      receiver, toData.address, ooMinBuy, OPENOCEANOL_ADDRESS, openoceanlData,
+                    ]);
+                  }
                 }
                 if (freshAggCall) permitInnerCalls = [freshAggCall];
               } catch (aggErr) {
@@ -6568,7 +7001,7 @@ async function executeSwap() {
           }
           // For aggregator swaps, permit2 path needs +1 wei (snwap keeps 1 wei in router).
           // Skip permit2 for full-balance swaps where the user can't spare the extra wei.
-          const isAggSnwap = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx || quote.isCow;
+          const isAggSnwap = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx || quote.isBebop || quote.isEnso || quote.isOpenOcean || quote.isCow;
           const canPermit2 = p2Allowance >= amountIn && (!isAggSnwap || tokenBal > amountIn);
           if (canPermit2) {
             try {
@@ -6706,6 +7139,63 @@ async function executeSwap() {
                     quote._okxMinBuy, OKXOL_ADDRESS, quote._okxOkxolData,
                   ]);
                   innerCalls = [snwapCall0];
+                }
+              }
+              else if (quote.isBebop) {
+                swapBtn.textContent = "Refreshing Bebop route...";
+                const bebopQ = await getBebopQuote(fromData.address, toData.address, amountIn, slippageBps);
+                if (bebopQ && bebopQ.tx) {
+                  const bebopolData = BEBOPOL_IFACE.encodeFunctionData('swap', [
+                    bebopQ.tx.to, fromData.address, toData.address, receiver, bebopQ.tx.data,
+                  ]);
+                  const bebopMinBuy = quote.bebopOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                  innerCalls = [ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    bebopMinBuy, BEBOPOL_ADDRESS, bebopolData,
+                  ])];
+                } else {
+                  innerCalls = [ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    quote._bebopMinBuy, BEBOPOL_ADDRESS, quote._bebopBebopolData,
+                  ])];
+                }
+              }
+              else if (quote.isEnso) {
+                swapBtn.textContent = "Refreshing Enso route...";
+                const ensoQ = await getEnsoQuote(fromData.address, toData.address, amountIn, slippageBps);
+                if (ensoQ && ensoQ.tx) {
+                  const ensolData = ENSOL_IFACE.encodeFunctionData('swap', [
+                    ensoQ.tx.to, fromData.address, toData.address, receiver, ensoQ.tx.data,
+                  ]);
+                  const ensoMinBuy = quote.ensoOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                  innerCalls = [ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    ensoMinBuy, ENSOL_ADDRESS, ensolData,
+                  ])];
+                } else {
+                  innerCalls = [ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    quote._ensoMinBuy, ENSOL_ADDRESS, quote._ensoEnsolData,
+                  ])];
+                }
+              }
+              else if (quote.isOpenOcean) {
+                swapBtn.textContent = "Refreshing OpenOcean route...";
+                const ooQ = await getOpenOceanQuote(fromData.address, toData.address, amountIn, slippageBps);
+                if (ooQ && ooQ.tx) {
+                  const openoceanlData = OPENOCEANOL_IFACE.encodeFunctionData('swap', [
+                    ooQ.tx.to, fromData.address, toData.address, receiver, ooQ.tx.data,
+                  ]);
+                  const ooMinBuy = quote.ooOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                  innerCalls = [ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    ooMinBuy, OPENOCEANOL_ADDRESS, openoceanlData,
+                  ])];
+                } else {
+                  innerCalls = [ROUTER_IFACE.encodeFunctionData('snwap', [
+                    fromData.address, 0n, receiver, toData.address,
+                    quote._ooMinBuy, OPENOCEANOL_ADDRESS, quote._ooOpenoceanlData,
+                  ])];
                 }
               }
               else if (quote.isCow) {
@@ -6883,6 +7373,57 @@ async function executeSwap() {
               txData = fresh.multicall;
               quote.msgValue = fresh.msgValue;
             }
+          } else if (fresh.isBebop) {
+            const toData = tokens[toSnap];
+            const bebopQ = await getBebopQuote(fromData.address, toData.address, amountIn, slippageBps);
+            if (bebopQ && bebopQ.tx) {
+              const isEthIn = fromData.address === ZERO_ADDRESS;
+              const receiver = getReceiver();
+              const bebopolData = BEBOPOL_IFACE.encodeFunctionData('swap', [
+                bebopQ.tx.to, fromData.address, toData.address, receiver, bebopQ.tx.data,
+              ]);
+              const bebopMinBuy = BigInt(bebopQ.buyAmount) * (10000n - BigInt(slippageBps)) / 10000n;
+              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
+                bebopMinBuy, BEBOPOL_ADDRESS, bebopolData,
+              ]);
+              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+              quote.msgValue = isEthIn ? amountIn : 0n;
+            } else { txData = fresh.multicall; quote.msgValue = fresh.msgValue; }
+          } else if (fresh.isEnso) {
+            const toData = tokens[toSnap];
+            const ensoQ = await getEnsoQuote(fromData.address, toData.address, amountIn, slippageBps);
+            if (ensoQ && ensoQ.tx) {
+              const isEthIn = fromData.address === ZERO_ADDRESS;
+              const receiver = getReceiver();
+              const ensolData = ENSOL_IFACE.encodeFunctionData('swap', [
+                ensoQ.tx.to, fromData.address, toData.address, receiver, ensoQ.tx.data,
+              ]);
+              const ensoMinBuy = BigInt(ensoQ.amountOut) * (10000n - BigInt(slippageBps)) / 10000n;
+              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
+                ensoMinBuy, ENSOL_ADDRESS, ensolData,
+              ]);
+              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+              quote.msgValue = isEthIn ? amountIn : 0n;
+            } else { txData = fresh.multicall; quote.msgValue = fresh.msgValue; }
+          } else if (fresh.isOpenOcean) {
+            const toData = tokens[toSnap];
+            const ooQ = await getOpenOceanQuote(fromData.address, toData.address, amountIn, slippageBps);
+            if (ooQ && ooQ.tx) {
+              const isEthIn = fromData.address === ZERO_ADDRESS;
+              const receiver = getReceiver();
+              const openoceanlData = OPENOCEANOL_IFACE.encodeFunctionData('swap', [
+                ooQ.tx.to, fromData.address, toData.address, receiver, ooQ.tx.data,
+              ]);
+              const ooMinBuy = BigInt(ooQ.outAmount) * (10000n - BigInt(slippageBps)) / 10000n;
+              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
+                ooMinBuy, OPENOCEANOL_ADDRESS, openoceanlData,
+              ]);
+              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
+              quote.msgValue = isEthIn ? amountIn : 0n;
+            } else { txData = fresh.multicall; quote.msgValue = fresh.msgValue; }
           } else if (fresh.isCow) {
             const toData = tokens[toSnap];
             const isEthIn = fromData.address === ZERO_ADDRESS;
@@ -7097,7 +7638,7 @@ async function executeSwap() {
     let txValue = quote.msgValue ?? 0n;
 
     // Pre-flight simulation: dry-run the tx to catch reverts before the user signs
-    const isAggSwap = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx;
+    const isAggSwap = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx || quote.isBebop || quote.isEnso || quote.isOpenOcean;
     const maxSimRetries = isAggSwap ? 3 : 1;
     let estimatedGas = null;
     for (let simTry = 0; simTry < maxSimRetries; simTry++) {
@@ -7218,6 +7759,42 @@ async function executeSwap() {
                 freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
                   fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
                   receiver, toData.address, okxMinBuy, OKXOL_ADDRESS, okxolData,
+                ]);
+              }
+            } else if (quote.isBebop) {
+              const bebopQ = await getBebopQuote(fromData.address, toData.address, amountIn, slippageBps);
+              if (bebopQ && bebopQ.tx) {
+                const bebopolData = BEBOPOL_IFACE.encodeFunctionData('swap', [
+                  bebopQ.tx.to, fromData.address, toData.address, receiver, bebopQ.tx.data,
+                ]);
+                const bebopMinBuy = quote.bebopOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
+                  receiver, toData.address, bebopMinBuy, BEBOPOL_ADDRESS, bebopolData,
+                ]);
+              }
+            } else if (quote.isEnso) {
+              const ensoQ = await getEnsoQuote(fromData.address, toData.address, amountIn, slippageBps);
+              if (ensoQ && ensoQ.tx) {
+                const ensolData = ENSOL_IFACE.encodeFunctionData('swap', [
+                  ensoQ.tx.to, fromData.address, toData.address, receiver, ensoQ.tx.data,
+                ]);
+                const ensoMinBuy = quote.ensoOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
+                  receiver, toData.address, ensoMinBuy, ENSOL_ADDRESS, ensolData,
+                ]);
+              }
+            } else if (quote.isOpenOcean) {
+              const ooQ = await getOpenOceanQuote(fromData.address, toData.address, amountIn, slippageBps);
+              if (ooQ && ooQ.tx) {
+                const openoceanlData = OPENOCEANOL_IFACE.encodeFunctionData('swap', [
+                  ooQ.tx.to, fromData.address, toData.address, receiver, ooQ.tx.data,
+                ]);
+                const ooMinBuy = quote.ooOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
+                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
+                  receiver, toData.address, ooMinBuy, OPENOCEANOL_ADDRESS, openoceanlData,
                 ]);
               }
             }
@@ -12177,7 +12754,30 @@ async function coinLaunch() {
 
 // end COIN TAB
 
+// ---- Footer: show live IPFS contenthash for zfi.wei ----
+(async function loadContentHash() {
+  const el = $('ipfsCid');
+  if (!el) return;
+  try {
+    const cid = await quoteRPC.call(async (rpc) => {
+      const ns = getWeinsContract(rpc);
+      const tokenId = await ns.computeId('zfi.wei');
+      const ch = await ns.contenthash(tokenId);
+      if (!ch || ch === '0x' || ch.length <= 2) return null;
+      return decodeContenthash(ch);
+    });
+    if (cid) {
+      el.textContent = cid;
+      el.title = cid;
+      el.parentElement.style.display = '';
+    }
+  } catch {}
+})();
+
 </script>
+<div id="ipfsFooter" style="display:none;text-align:center;padding:24px 12px 12px;font-size:11px;color:var(--fg-muted);opacity:0.6;word-break:break-all">
+  ipfs: <span id="ipfsCid"></span>
+</div>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"8510b592df8f4a69b87bbf8e840f200c","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>

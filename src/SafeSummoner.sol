@@ -31,14 +31,8 @@ interface IMoloch {
     function setTransfersLocked(bool sharesLocked, bool lootLocked) external;
     function setAutoFutarchy(uint256 param, uint256 cap) external;
     function setFutarchyRewardToken(address _rewardToken) external;
-    function setSale(
-        address payToken,
-        uint256 pricePerShare,
-        uint256 cap,
-        bool minting,
-        bool active,
-        bool isLoot
-    ) external;
+    function setSale(address payToken, uint256 pricePerShare, uint256 cap, bool minting, bool active, bool isLoot)
+        external;
     function setPermit(
         uint8 op,
         address to,
@@ -48,16 +42,51 @@ interface IMoloch {
         address spender,
         uint256 count
     ) external;
+    function setAllowance(address spender, address token, uint256 amount) external;
+}
+
+interface IShareSale {
+    function configure(address token, address payToken, uint256 price, uint40 deadline) external;
+}
+
+interface ITapVest {
+    function configure(address token, address beneficiary, uint128 ratePerSec) external;
+}
+
+interface ILPSeedSwapHook {
+    function configure(
+        address tokenA,
+        uint128 amountA,
+        address tokenB,
+        uint128 amountB,
+        uint40 deadline,
+        address shareSale,
+        uint128 minSupply
+    ) external;
+}
+
+interface ISharesLoot {
+    function mintFromMoloch(address to, uint256 amount) external;
 }
 
 interface IShareBurner {
     function burnUnsold(address shares, uint256 deadline) external payable;
 }
 
+interface IRollbackGuardian {
+    function configure(address guardian, uint40 expiry) external;
+}
+
+interface IMolochBumpConfig {
+    function bumpConfig() external;
+    function setAutoFutarchy(uint256 param, uint256 cap) external;
+}
+
 /// @dev Deployed singletons (same CREATE2/3 addresses on all supported chains).
 ISummoner constant SUMMONER = ISummoner(0x0000000000330B8df9E3bc5E553074DA58eE9138);
 address constant MOLOCH_IMPL = 0x643A45B599D81be3f3A68F37EB3De55fF10673C1;
 address constant SHARES_IMPL = 0x71E9b38d301b5A58cb998C1295045FE276Acf600;
+address constant LOOT_IMPL = 0x6f1f2aF76a3aDD953277e9F369242697C87bc6A5;
 address constant SHARE_BURNER = 0x000000000040084694F7B6fb2846D067B4c3Aa9f;
 address constant RENDERER = 0x000000000011C799980827F52d3137b4abD6E654;
 
@@ -75,14 +104,19 @@ address constant RENDERER = 0x000000000011C799980827F52d3137b4abD6E654;
 ///   Config — Requires proposalTTL > 0 (prevents proposals lingering indefinitely)
 ///   Config — Requires proposalTTL > timelockDelay (prevents proposals expiring in queue)
 contract SafeSummoner {
+    error Create2Failed();
     error NoInitialHolders();
     error SalePriceRequired();
+    error TimelockExceedsTTL();
+    error ModuleSaleConflict();
     error FutarchyCapRequired();
     error ProposalTTLRequired();
     error QuorumBpsOutOfRange();
-    error TimelockExceedsTTL();
+    error SeedGateWithoutSale();
+    error InitLootLengthMismatch();
     error ProposalThresholdRequired();
     error QuorumRequiredForFutarchy();
+    error RollbackSingletonRequired();
     error MintingSaleWithDynamicQuorum();
 
     /// @dev Typed configuration for safe DAO deployment.
@@ -100,7 +134,7 @@ contract SafeSummoner {
         bool lockLoot; // true = loot non-transferable at launch
         // ── Futarchy ──
         uint256 autoFutarchyParam; // 0 = off. 1..10000 = BPS of supply; >10000 = absolute
-        uint256 autoFutarchyCap; // Per-proposal cap. 0 = no cap
+        uint256 autoFutarchyCap; // Per-proposal cap. Must be > 0 when futarchy enabled (KF#3).
         address futarchyRewardToken; // Only checked if autoFutarchyParam > 0
         // ── Sale ──
         bool saleActive;
@@ -110,10 +144,96 @@ contract SafeSummoner {
         bool saleMinting; // true = mint new, false = transfer from DAO
         bool saleIsLoot; // true = sell loot instead of shares
         // ── ShareBurner ──
+        address burnSingleton; // ShareBurner contract address (address(0) = use default SHARE_BURNER)
         uint256 saleBurnDeadline; // 0 = no auto-burn. >0 = timestamp after which unsold shares are burnable
+        // ── RollbackGuardian ──
+        address rollbackGuardian; // address(0) = skip. EOA or multisig that can emergency-bump config
+        address rollbackSingleton; // RollbackGuardian singleton address (required if rollbackGuardian set)
+        uint40 rollbackExpiry; // 0 = no expiry. Unix timestamp after which rollback is disabled
+    }
+
+    /// @dev ShareSale module config. singleton = address(0) to skip.
+    ///      Uses Moloch allowance sentinels: address(dao) = mint shares, address(1007) = mint loot.
+    struct SaleModule {
+        address singleton; // ShareSale contract address (0 = skip)
+        address payToken; // address(0) = ETH
+        uint40 deadline; // unix timestamp after which buys revert (0 = no deadline)
+        uint256 price; // per-token price (1e18 scaled)
+        uint256 cap; // sale cap (allowance amount)
+        bool sellLoot; // true = sell loot, false = sell shares
+        bool minting; // true = mint on buy (sentinel), false = transfer from DAO balance
+    }
+
+    /// @dev TapVest module config. singleton = address(0) to skip.
+    struct TapModule {
+        address singleton; // TapVest contract address (0 = skip)
+        address token; // vested token (address(0) = ETH)
+        uint256 budget; // total budget (allowance)
+        address beneficiary; // tap recipient
+        uint128 ratePerSec; // vesting rate in smallest-unit/sec
+    }
+
+    /// @dev LPSeedSwapHook module config. singleton = address(0) to skip.
+    ///      Token sentinels: address(1) = DAO shares, address(2) = DAO loot.
+    ///      When a sentinel is used, the wrapper mints that amount to the DAO
+    ///      and resolves it to the predicted shares/loot ERC20 address.
+    ///      LPSeedSwapHook acts as a ZAMM hook — the pool's feeOrHook is always derived
+    ///      from the LPSeedSwapHook singleton address, preventing frontrun pool creation.
+    struct SeedModule {
+        address singleton; // LPSeedSwapHook contract address (0 = skip)
+        address tokenA; // first token (address(0)=ETH, address(1)=shares, address(2)=loot)
+        uint128 amountA; // amount of tokenA to seed
+        address tokenB; // second token (address(1)=shares, address(2)=loot, or ERC20)
+        uint128 amountB; // amount of tokenB to seed
+        uint40 deadline; // time gate (0 = none)
+        bool gateBySale; // if true, gate LP seeding on SaleModule completion
+        uint128 minSupply; // balance gate (0 = none)
     }
 
     constructor() payable {}
+
+    // ── Multicall ────────────────────────────────────────────────
+
+    /// @notice Batch multiple SafeSummoner calls in a single transaction.
+    /// @dev Uses delegatecall so msg.sender is preserved. msg.value is shared
+    ///      across all calls — callers sending ETH must ensure only one sub-call
+    ///      consumes it, or that the total is sufficient.
+    function multicall(bytes[] calldata data) public payable returns (bytes[] memory results) {
+        results = new bytes[](data.length);
+        for (uint256 i; i != data.length; ++i) {
+            (bool ok, bytes memory result) = address(this).delegatecall(data[i]);
+            if (!ok) {
+                assembly ("memory-safe") {
+                    revert(add(result, 0x20), mload(result))
+                }
+            }
+            results[i] = result;
+        }
+    }
+
+    // ── CREATE2 ──────────────────────────────────────────────────
+
+    /// @notice Deploy an arbitrary contract via CREATE2.
+    /// @dev Useful for deploying peripheral contracts (hooks, modules) as part
+    ///      of a multicall summoning sequence with deterministic addresses.
+    /// @param creationCode Contract creation bytecode (with constructor args appended if any)
+    /// @param salt         CREATE2 salt
+    /// @return deployed    The deployed contract address
+    function create2Deploy(bytes calldata creationCode, bytes32 salt) public payable returns (address deployed) {
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            calldatacopy(ptr, creationCode.offset, creationCode.length)
+            deployed := create2(callvalue(), ptr, creationCode.length, salt)
+        }
+        if (deployed == address(0)) revert Create2Failed();
+    }
+
+    /// @notice Predict the address of a contract deployed via create2Deploy.
+    function predictCreate2(bytes calldata creationCode, bytes32 salt) public view returns (address) {
+        return address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, keccak256(creationCode)))))
+        );
+    }
 
     /// @notice Deploy a new DAO with validated configuration.
     /// @param orgName      DAO display name
@@ -125,6 +245,7 @@ contract SafeSummoner {
     /// @param salt         CREATE2 salt for deterministic addresses
     /// @param initHolders  Initial share holders
     /// @param initShares   Initial share amounts (must match initHolders length)
+    /// @param initLoot     Initial loot amounts per holder (empty = skip, else must match initHolders length)
     /// @param config       Typed configuration struct
     /// @param extraCalls   Additional raw initCalls appended after config (advanced use)
     function safeSummon(
@@ -137,30 +258,26 @@ contract SafeSummoner {
         bytes32 salt,
         address[] calldata initHolders,
         uint256[] calldata initShares,
+        uint256[] calldata initLoot,
         SafeConfig calldata config,
         Call[] calldata extraCalls
     ) public payable returns (address dao) {
         // ── Validate ──────────────────────────────────────────────
         _validate(quorumBps, config, initHolders.length);
+        if (initLoot.length != 0 && initLoot.length != initHolders.length) {
+            revert InitLootLengthMismatch();
+        }
 
         // ── Predict DAO address ───────────────────────────────────
         address daoAddr = _predictDAO(salt, initHolders, initShares);
 
         // ── Build initCalls ───────────────────────────────────────
-        Call[] memory calls = _buildCalls(daoAddr, config, extraCalls);
+        Call[] memory extra = _mergeExtra(_buildLootMints(daoAddr, initHolders, initLoot), extraCalls);
+        Call[] memory calls = _buildCalls(daoAddr, config, extra);
 
         // ── Summon ────────────────────────────────────────────────
         dao = SUMMONER.summon{value: msg.value}(
-            orgName,
-            orgSymbol,
-            orgURI,
-            quorumBps,
-            ragequittable,
-            renderer,
-            salt,
-            initHolders,
-            initShares,
-            calls
+            orgName, orgSymbol, orgURI, quorumBps, ragequittable, renderer, salt, initHolders, initShares, calls
         );
     }
 
@@ -177,16 +294,18 @@ contract SafeSummoner {
         string calldata orgURI,
         bytes32 salt,
         address[] calldata initHolders,
-        uint256[] calldata initShares
+        uint256[] calldata initShares,
+        bool lockShares
     ) public payable returns (address) {
         SafeConfig memory c;
         c.proposalThreshold = _defaultThreshold(initShares);
         c.proposalTTL = 7 days;
         c.timelockDelay = 2 days;
+        c.lockShares = lockShares;
         return _summonPreset(orgName, orgSymbol, orgURI, 1000, true, salt, initHolders, initShares, c);
     }
 
-    /// @notice Fast DAO: 3-day voting, 1-day timelock, 10% quorum, ragequittable.
+    /// @notice Fast DAO: 3-day voting, 1-day timelock, 5% quorum, ragequittable.
     /// Suitable for agile teams, working groups, and sub-DAOs.
     function summonFast(
         string calldata orgName,
@@ -194,47 +313,190 @@ contract SafeSummoner {
         string calldata orgURI,
         bytes32 salt,
         address[] calldata initHolders,
-        uint256[] calldata initShares
+        uint256[] calldata initShares,
+        bool lockShares
     ) public payable returns (address) {
         SafeConfig memory c;
         c.proposalThreshold = _defaultThreshold(initShares);
         c.proposalTTL = 3 days;
         c.timelockDelay = 1 days;
-        return _summonPreset(orgName, orgSymbol, orgURI, 1000, true, salt, initHolders, initShares, c);
-    }
-
-    /// @notice Minimal DAO: 3-day voting, no timelock, 5% quorum, ragequittable.
-    /// Suitable for small clubs, investment groups, and informal collectives.
-    function summonMinimal(
-        string calldata orgName,
-        string calldata orgSymbol,
-        string calldata orgURI,
-        bytes32 salt,
-        address[] calldata initHolders,
-        uint256[] calldata initShares
-    ) public payable returns (address) {
-        SafeConfig memory c;
-        c.proposalThreshold = _defaultThreshold(initShares);
-        c.proposalTTL = 3 days;
+        c.lockShares = lockShares;
         return _summonPreset(orgName, orgSymbol, orgURI, 500, true, salt, initHolders, initShares, c);
     }
 
-    /// @notice Standard non-ragequittable: 7-day voting, 2-day timelock, 10% quorum.
-    /// Suitable for protocol treasuries and grant programs where exit liquidity
-    /// should not drain the pool.
-    function summonLocked(
+    /// @notice Founder-mode DAO: single owner with 10M shares, 1-day voting, no timelock, 10% quorum.
+    ///         Designed for solo founders who want fast unilateral control with ragequit enabled.
+    function summonFounder(string calldata orgName, string calldata orgSymbol, string calldata orgURI, bytes32 salt)
+        public
+        payable
+        returns (address)
+    {
+        address[] memory h = new address[](1);
+        h[0] = msg.sender;
+        uint256[] memory s = new uint256[](1);
+        s[0] = 10_000_000e18;
+
+        SafeConfig memory c;
+        c.proposalThreshold = 100_000e18; // 1% of 10M
+        c.proposalTTL = 1 days;
+
+        // Inline prediction (can't pass memory arrays to calldata _predictDAO)
+        bytes32 _salt = keccak256(abi.encode(h, s, salt));
+        address daoAddr = address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            bytes1(0xff),
+                            address(SUMMONER),
+                            _salt,
+                            keccak256(
+                                abi.encodePacked(
+                                    hex"602d5f8160095f39f35f5f365f5f37365f73",
+                                    MOLOCH_IMPL,
+                                    hex"5af43d5f5f3e6029573d5ffd5b3d5ff3"
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        );
+
+        Call[] memory extra = new Call[](0);
+        Call[] memory calls = _buildCalls(daoAddr, c, extra);
+
+        return SUMMONER.summon{value: msg.value}(orgName, orgSymbol, orgURI, 1000, true, RENDERER, salt, h, s, calls);
+    }
+
+    // ── Modular DAICO ─────────────────────────────────────────
+    // Compose ShareSale + TapVest + LPSeedSwapHook singletons as pluggable modules
+    // to achieve DAICO-like functionality without coupling to a single contract.
+    // Set module.singleton = address(0) to skip any module.
+
+    /// @notice Deploy a DAO with full config + modular sale/tap/seed.
+    /// @dev Combines SafeConfig governance with standalone peripheral singletons.
+    ///      Cannot use SafeConfig.saleActive simultaneously with SaleModule.
+    function safeSummonDAICO(
+        string calldata orgName,
+        string calldata orgSymbol,
+        string calldata orgURI,
+        uint16 quorumBps,
+        bool ragequittable,
+        address renderer,
+        bytes32 salt,
+        address[] calldata initHolders,
+        uint256[] calldata initShares,
+        uint256[] calldata initLoot,
+        SafeConfig calldata config,
+        SaleModule calldata sale,
+        TapModule calldata tap,
+        SeedModule calldata seed,
+        Call[] calldata extraCalls
+    ) public payable returns (address dao) {
+        if (config.saleActive && sale.singleton != address(0)) {
+            revert ModuleSaleConflict();
+        }
+        _validate(quorumBps, config, initHolders.length);
+        _validateModules(quorumBps, config.quorumAbsolute, sale, seed);
+        if (initLoot.length != 0 && initLoot.length != initHolders.length) {
+            revert InitLootLengthMismatch();
+        }
+
+        address daoAddr = _predictDAO(salt, initHolders, initShares);
+        Call[] memory lootMints = _buildLootMints(daoAddr, initHolders, initLoot);
+        Call[] memory modCalls = _buildModuleCalls(daoAddr, sale, tap, seed);
+
+        // Merge: loot mints + modules + extraCalls
+        Call[] memory allExtra = new Call[](lootMints.length + modCalls.length + extraCalls.length);
+        uint256 idx;
+        for (uint256 j; j < lootMints.length; j++) {
+            allExtra[idx++] = lootMints[j];
+        }
+        for (uint256 j; j < modCalls.length; j++) {
+            allExtra[idx++] = modCalls[j];
+        }
+        for (uint256 j; j < extraCalls.length; j++) {
+            allExtra[idx++] = extraCalls[j];
+        }
+
+        Call[] memory calls = _buildCalls(daoAddr, config, allExtra);
+
+        dao = SUMMONER.summon{value: msg.value}(
+            orgName, orgSymbol, orgURI, quorumBps, ragequittable, renderer, salt, initHolders, initShares, calls
+        );
+    }
+
+    /// @notice Standard DAO (7d voting, 2d timelock, 10% quorum) + modular DAICO.
+    function summonStandardDAICO(
         string calldata orgName,
         string calldata orgSymbol,
         string calldata orgURI,
         bytes32 salt,
         address[] calldata initHolders,
-        uint256[] calldata initShares
+        uint256[] calldata initShares,
+        bool lockShares,
+        SaleModule calldata sale,
+        TapModule calldata tap,
+        SeedModule calldata seed
     ) public payable returns (address) {
         SafeConfig memory c;
         c.proposalThreshold = _defaultThreshold(initShares);
         c.proposalTTL = 7 days;
         c.timelockDelay = 2 days;
-        return _summonPreset(orgName, orgSymbol, orgURI, 1000, false, salt, initHolders, initShares, c);
+        c.lockShares = lockShares;
+        return
+            _summonDAICOPreset(
+                orgName, orgSymbol, orgURI, 1000, true, salt, initHolders, initShares, c, sale, tap, seed
+            );
+    }
+
+    /// @notice Fast DAO (3d voting, 1d timelock, 5% quorum) + modular DAICO.
+    function summonFastDAICO(
+        string calldata orgName,
+        string calldata orgSymbol,
+        string calldata orgURI,
+        bytes32 salt,
+        address[] calldata initHolders,
+        uint256[] calldata initShares,
+        bool lockShares,
+        SaleModule calldata sale,
+        TapModule calldata tap,
+        SeedModule calldata seed
+    ) public payable returns (address) {
+        SafeConfig memory c;
+        c.proposalThreshold = _defaultThreshold(initShares);
+        c.proposalTTL = 3 days;
+        c.timelockDelay = 1 days;
+        c.lockShares = lockShares;
+        return
+            _summonDAICOPreset(orgName, orgSymbol, orgURI, 500, true, salt, initHolders, initShares, c, sale, tap, seed);
+    }
+
+    function _summonDAICOPreset(
+        string calldata orgName,
+        string calldata orgSymbol,
+        string calldata orgURI,
+        uint16 quorumBps,
+        bool ragequittable,
+        bytes32 salt,
+        address[] calldata initHolders,
+        uint256[] calldata initShares,
+        SafeConfig memory config,
+        SaleModule calldata sale,
+        TapModule calldata tap,
+        SeedModule calldata seed
+    ) internal returns (address) {
+        _validate(quorumBps, config, initHolders.length);
+        _validateModules(quorumBps, config.quorumAbsolute, sale, seed);
+
+        address daoAddr = _predictDAO(salt, initHolders, initShares);
+        Call[] memory modCalls = _buildModuleCalls(daoAddr, sale, tap, seed);
+        Call[] memory calls = _buildCalls(daoAddr, config, modCalls);
+
+        return SUMMONER.summon{value: msg.value}(
+            orgName, orgSymbol, orgURI, quorumBps, ragequittable, RENDERER, salt, initHolders, initShares, calls
+        );
     }
 
     function _summonPreset(
@@ -253,8 +515,7 @@ contract SafeSummoner {
         Call[] memory extra = new Call[](0);
         Call[] memory calls = _buildCalls(daoAddr, config, extra);
         return SUMMONER.summon{value: msg.value}(
-            orgName, orgSymbol, orgURI, quorumBps, ragequittable, RENDERER, salt,
-            initHolders, initShares, calls
+            orgName, orgSymbol, orgURI, quorumBps, ragequittable, RENDERER, salt, initHolders, initShares, calls
         );
     }
 
@@ -265,6 +526,16 @@ contract SafeSummoner {
     function previewCalls(SafeConfig calldata config) public pure returns (Call[] memory) {
         Call[] memory empty = new Call[](0);
         return _buildCalls(address(0), config, empty);
+    }
+
+    /// @notice Preview the module initCalls that safeSummonDAICO would generate.
+    /// @dev Uses address(0) as DAO placeholder. Sentinel tokens resolve to predicted addresses.
+    function previewModuleCalls(SaleModule calldata sale, TapModule calldata tap, SeedModule calldata seed)
+        public
+        pure
+        returns (Call[] memory)
+    {
+        return _buildModuleCalls(address(0), sale, tap, seed);
     }
 
     /// @notice Predict the DAO address that would be deployed with the given parameters.
@@ -279,6 +550,11 @@ contract SafeSummoner {
     /// @notice Predict the Shares token address for a given DAO.
     function predictShares(address dao) public pure returns (address) {
         return _predictShares(dao);
+    }
+
+    /// @notice Predict the Loot token address for a given DAO.
+    function predictLoot(address dao) public pure returns (address) {
+        return _predictLoot(dao);
     }
 
     // ── Validation ────────────────────────────────────────────────
@@ -312,6 +588,29 @@ contract SafeSummoner {
         }
 
         if (c.saleActive && c.salePricePerShare == 0) revert SalePriceRequired();
+
+        // Rollback guardian requires a singleton to call
+        if (c.rollbackGuardian != address(0) && c.rollbackSingleton == address(0)) {
+            revert RollbackSingletonRequired();
+        }
+    }
+
+    /// @dev Validate module-specific constraints.
+    function _validateModules(uint16 quorumBps, uint96 quorumAbsolute, SaleModule memory sale, SeedModule memory seed)
+        internal
+        pure
+    {
+        if (sale.singleton != address(0)) {
+            if (sale.price == 0) revert SalePriceRequired();
+            // KF#2: minting sale + dynamic-only quorum = supply manipulation
+            if (sale.minting && quorumBps > 0 && quorumAbsolute == 0) {
+                revert MintingSaleWithDynamicQuorum();
+            }
+        }
+        // SeedModule gate-by-sale requires a SaleModule to gate on
+        if (seed.singleton != address(0) && seed.gateBySale && sale.singleton == address(0)) {
+            revert SeedGateWithoutSale();
+        }
     }
 
     // ── Call Builder ──────────────────────────────────────────────
@@ -333,13 +632,13 @@ contract SafeSummoner {
         }
         if (c.saleActive) n++;
         if (c.saleBurnDeadline > 0) n++;
+        if (c.rollbackGuardian != address(0)) n += 3; // configure + rollback permit + futarchy permit
 
         calls = new Call[](n + extra.length);
         uint256 i;
 
         // --- Required ---
-        calls[i++] =
-            Call(dao, 0, abi.encodeCall(IMoloch.setProposalThreshold, (c.proposalThreshold)));
+        calls[i++] = Call(dao, 0, abi.encodeCall(IMoloch.setProposalThreshold, (c.proposalThreshold)));
         calls[i++] = Call(dao, 0, abi.encodeCall(IMoloch.setProposalTTL, (c.proposalTTL)));
 
         // --- Optional governance ---
@@ -350,28 +649,19 @@ contract SafeSummoner {
             calls[i++] = Call(dao, 0, abi.encodeCall(IMoloch.setQuorumAbsolute, (c.quorumAbsolute)));
         }
         if (c.minYesVotes > 0) {
-            calls[i++] =
-                Call(dao, 0, abi.encodeCall(IMoloch.setMinYesVotesAbsolute, (c.minYesVotes)));
+            calls[i++] = Call(dao, 0, abi.encodeCall(IMoloch.setMinYesVotesAbsolute, (c.minYesVotes)));
         }
 
         // --- Transfers ---
         if (c.lockShares || c.lockLoot) {
-            calls[i++] = Call(
-                dao, 0, abi.encodeCall(IMoloch.setTransfersLocked, (c.lockShares, c.lockLoot))
-            );
+            calls[i++] = Call(dao, 0, abi.encodeCall(IMoloch.setTransfersLocked, (c.lockShares, c.lockLoot)));
         }
 
         // --- Futarchy ---
         if (c.autoFutarchyParam > 0) {
-            calls[i++] = Call(
-                dao,
-                0,
-                abi.encodeCall(IMoloch.setAutoFutarchy, (c.autoFutarchyParam, c.autoFutarchyCap))
-            );
+            calls[i++] = Call(dao, 0, abi.encodeCall(IMoloch.setAutoFutarchy, (c.autoFutarchyParam, c.autoFutarchyCap)));
             if (c.futarchyRewardToken != address(0)) {
-                calls[i++] = Call(
-                    dao, 0, abi.encodeCall(IMoloch.setFutarchyRewardToken, (c.futarchyRewardToken))
-                );
+                calls[i++] = Call(dao, 0, abi.encodeCall(IMoloch.setFutarchyRewardToken, (c.futarchyRewardToken)));
             }
         }
 
@@ -381,24 +671,16 @@ contract SafeSummoner {
                 dao,
                 0,
                 abi.encodeCall(
-                    IMoloch.setSale,
-                    (
-                        c.salePayToken,
-                        c.salePricePerShare,
-                        c.saleCap,
-                        c.saleMinting,
-                        true,
-                        c.saleIsLoot
-                    )
+                    IMoloch.setSale, (c.salePayToken, c.salePricePerShare, c.saleCap, c.saleMinting, true, c.saleIsLoot)
                 )
             );
         }
 
         // --- ShareBurner permit ---
         if (c.saleBurnDeadline > 0) {
-            address sharesAddr = _predictShares(dao);
-            bytes memory burnData =
-                abi.encodeCall(IShareBurner.burnUnsold, (sharesAddr, c.saleBurnDeadline));
+            address burner = c.burnSingleton == address(0) ? SHARE_BURNER : c.burnSingleton;
+            address saleToken = c.saleIsLoot ? _predictLoot(dao) : _predictShares(dao);
+            bytes memory burnData = abi.encodeCall(IShareBurner.burnUnsold, (saleToken, c.saleBurnDeadline));
             calls[i++] = Call(
                 dao,
                 0,
@@ -406,12 +688,56 @@ contract SafeSummoner {
                     IMoloch.setPermit,
                     (
                         uint8(1), // op = delegatecall
-                        SHARE_BURNER, // target
+                        burner, // target
                         uint256(0), // value
                         burnData, // encoded burnUnsold
                         keccak256("ShareBurner"), // nonce
-                        SHARE_BURNER, // spender
+                        burner, // spender
                         uint256(1) // count = 1 (one-shot)
+                    )
+                )
+            );
+        }
+
+        // --- RollbackGuardian ---
+        if (c.rollbackGuardian != address(0)) {
+            // 1. Configure guardian on the singleton (called by DAO during init)
+            calls[i++] = Call(
+                c.rollbackSingleton,
+                0,
+                abi.encodeCall(IRollbackGuardian.configure, (c.rollbackGuardian, c.rollbackExpiry))
+            );
+            // 2. Authorize the singleton to spend a bumpConfig permit
+            calls[i++] = Call(
+                dao,
+                0,
+                abi.encodeCall(
+                    IMoloch.setPermit,
+                    (
+                        uint8(0), // op = call
+                        dao, // target = DAO itself
+                        uint256(0), // value
+                        abi.encodeCall(IMolochBumpConfig.bumpConfig, ()), // bumpConfig calldata
+                        keccak256("RollbackGuardian"), // nonce
+                        c.rollbackSingleton, // spender = singleton
+                        uint256(1) // count = 1 (one-shot)
+                    )
+                )
+            );
+            // 3. Authorize the singleton to disable auto-futarchy
+            calls[i++] = Call(
+                dao,
+                0,
+                abi.encodeCall(
+                    IMoloch.setPermit,
+                    (
+                        uint8(0),
+                        dao,
+                        uint256(0),
+                        abi.encodeCall(IMolochBumpConfig.setAutoFutarchy, (0, 0)),
+                        keccak256("RollbackGuardian.killFutarchy"),
+                        c.rollbackSingleton,
+                        uint256(1)
                     )
                 )
             );
@@ -427,32 +753,158 @@ contract SafeSummoner {
 
     /// @notice Generate the setPermit Call for ShareBurner inclusion in initCalls or proposals.
     /// @dev Useful for DAOs that want to add burn-after-deadline outside of SafeSummoner presets.
+    /// @param singleton ShareBurner address (address(0) = use default SHARE_BURNER)
     function burnPermitCall(
         bytes32 salt,
         address[] calldata initHolders,
         uint256[] calldata initShares,
-        uint256 deadline
+        uint256 deadline,
+        address singleton
     ) public pure returns (Call memory) {
+        address burner = singleton == address(0) ? SHARE_BURNER : singleton;
         address dao = _predictDAO(salt, initHolders, initShares);
         address sharesAddr = _predictShares(dao);
-        bytes memory burnData =
-            abi.encodeCall(IShareBurner.burnUnsold, (sharesAddr, deadline));
+        bytes memory burnData = abi.encodeCall(IShareBurner.burnUnsold, (sharesAddr, deadline));
         return Call(
             dao,
             0,
             abi.encodeCall(
                 IMoloch.setPermit,
-                (
-                    uint8(1),
-                    SHARE_BURNER,
-                    uint256(0),
-                    burnData,
-                    keccak256("ShareBurner"),
-                    SHARE_BURNER,
-                    uint256(1)
-                )
+                (uint8(1), burner, uint256(0), burnData, keccak256("ShareBurner"), burner, uint256(1))
             )
         );
+    }
+
+    // ── Module Call Builder ────────────────────────────────────────
+
+    /// @dev Build initCalls for ShareSale, TapVest, and LPSeedSwapHook modules.
+    ///      Order: SaleModule → TapModule → SeedModule (mints → allowances → configure).
+    function _buildModuleCalls(address dao, SaleModule memory sale, TapModule memory tap, SeedModule memory seed)
+        internal
+        pure
+        returns (Call[] memory calls)
+    {
+        // Count calls
+        uint256 n;
+        if (sale.singleton != address(0)) n += 2; // setAllowance + configure
+        if (tap.singleton != address(0)) n += 2; // setAllowance + configure
+        if (seed.singleton != address(0)) {
+            n += 3; // 2x setAllowance + configure
+            if (_isSeedSentinel(seed.tokenA)) n++; // mint
+            if (_isSeedSentinel(seed.tokenB)) n++; // mint
+        }
+
+        calls = new Call[](n);
+        uint256 i;
+
+        // ── SaleModule ──────────────────────────────────────────
+        if (sale.singleton != address(0)) {
+            address saleToken = _resolveSaleToken(dao, sale);
+            calls[i++] = Call(dao, 0, abi.encodeCall(IMoloch.setAllowance, (sale.singleton, saleToken, sale.cap)));
+            calls[i++] = Call(
+                sale.singleton,
+                0,
+                abi.encodeCall(IShareSale.configure, (saleToken, sale.payToken, sale.price, sale.deadline))
+            );
+        }
+
+        // ── TapModule ───────────────────────────────────────────
+        if (tap.singleton != address(0)) {
+            calls[i++] = Call(dao, 0, abi.encodeCall(IMoloch.setAllowance, (tap.singleton, tap.token, tap.budget)));
+            calls[i++] = Call(
+                tap.singleton, 0, abi.encodeCall(ITapVest.configure, (tap.token, tap.beneficiary, tap.ratePerSec))
+            );
+        }
+
+        // ── SeedModule ──────────────────────────────────────────
+        if (seed.singleton != address(0)) {
+            address tokenA = _resolveSeedToken(dao, seed.tokenA);
+            address tokenB = _resolveSeedToken(dao, seed.tokenB);
+            address shareSale = seed.gateBySale ? sale.singleton : address(0);
+
+            // Mint sentinel tokens to DAO (must precede allowance)
+            if (_isSeedSentinel(seed.tokenA)) {
+                calls[i++] = Call(tokenA, 0, abi.encodeCall(ISharesLoot.mintFromMoloch, (dao, uint256(seed.amountA))));
+            }
+            if (_isSeedSentinel(seed.tokenB)) {
+                calls[i++] = Call(tokenB, 0, abi.encodeCall(ISharesLoot.mintFromMoloch, (dao, uint256(seed.amountB))));
+            }
+
+            // Set allowances
+            calls[i++] =
+                Call(dao, 0, abi.encodeCall(IMoloch.setAllowance, (seed.singleton, tokenA, uint256(seed.amountA))));
+            calls[i++] =
+                Call(dao, 0, abi.encodeCall(IMoloch.setAllowance, (seed.singleton, tokenB, uint256(seed.amountB))));
+
+            // Configure LPSeedSwapHook
+            calls[i++] = Call(
+                seed.singleton,
+                0,
+                abi.encodeCall(
+                    ILPSeedSwapHook.configure,
+                    (tokenA, seed.amountA, tokenB, seed.amountB, seed.deadline, shareSale, seed.minSupply)
+                )
+            );
+        }
+    }
+
+    /// @dev Returns true for LPSeedSwapHook sentinel tokens that require minting.
+    ///      address(1) = DAO shares, address(2) = DAO loot.
+    function _isSeedSentinel(address token) internal pure returns (bool) {
+        return token == address(1) || token == address(2);
+    }
+
+    /// @dev Resolve SaleModule token to Moloch allowance sentinel or predicted ERC20 address.
+    ///      Minting path: address(dao) for shares, address(1007) for loot.
+    ///      Transfer path: predicted shares/loot ERC20 address.
+    function _resolveSaleToken(address dao, SaleModule memory sale) internal pure returns (address) {
+        if (sale.minting) {
+            return sale.sellLoot ? address(1007) : dao;
+        }
+        return sale.sellLoot ? _predictLoot(dao) : _predictShares(dao);
+    }
+
+    /// @dev Resolve SeedModule token sentinel to predicted ERC20 address.
+    ///      address(1) → shares, address(2) → loot, otherwise pass-through.
+    function _resolveSeedToken(address dao, address token) internal pure returns (address) {
+        if (token == address(1)) return _predictShares(dao);
+        if (token == address(2)) return _predictLoot(dao);
+        return token;
+    }
+
+    // ── Loot Mints ─────────────────────────────────────────────────
+
+    /// @dev Build mintFromMoloch calls for initial loot distribution.
+    ///      Skips zero-amount entries. Returns empty array if initLoot is empty.
+    function _buildLootMints(address dao, address[] calldata holders, uint256[] calldata loot)
+        internal
+        pure
+        returns (Call[] memory calls)
+    {
+        if (loot.length == 0) return calls;
+        address lootAddr = _predictLoot(dao);
+        uint256 n;
+        for (uint256 i; i < loot.length; i++) {
+            if (loot[i] > 0) n++;
+        }
+        calls = new Call[](n);
+        uint256 idx;
+        for (uint256 i; i < loot.length; i++) {
+            if (loot[i] > 0) {
+                calls[idx++] = Call(lootAddr, 0, abi.encodeCall(ISharesLoot.mintFromMoloch, (holders[i], loot[i])));
+            }
+        }
+    }
+
+    /// @dev Concatenate a memory array with a calldata array.
+    function _mergeExtra(Call[] memory a, Call[] calldata b) internal pure returns (Call[] memory merged) {
+        merged = new Call[](a.length + b.length);
+        for (uint256 i; i < a.length; i++) {
+            merged[i] = a[i];
+        }
+        for (uint256 i; i < b.length; i++) {
+            merged[a.length + i] = b[i];
+        }
     }
 
     // ── Defaults ──────────────────────────────────────────────────
@@ -466,52 +918,43 @@ contract SafeSummoner {
         }
         uint256 t = total / 100; // 1%
         if (t == 0) t = 1;
+        if (t > type(uint96).max) t = type(uint96).max;
         return uint96(t);
     }
 
     // ── Address Prediction ────────────────────────────────────────
 
-    function _predictDAO(
-        bytes32 salt,
-        address[] calldata initHolders,
-        uint256[] calldata initShares
-    ) internal pure returns (address) {
+    function _predictDAO(bytes32 salt, address[] calldata initHolders, uint256[] calldata initShares)
+        internal
+        pure
+        returns (address)
+    {
         bytes32 _salt = keccak256(abi.encode(initHolders, initShares, salt));
         bytes memory creationCode = abi.encodePacked(
-            hex"602d5f8160095f39f35f5f365f5f37365f73",
-            MOLOCH_IMPL,
-            hex"5af43d5f5f3e6029573d5ffd5b3d5ff3"
+            hex"602d5f8160095f39f35f5f365f5f37365f73", MOLOCH_IMPL, hex"5af43d5f5f3e6029573d5ffd5b3d5ff3"
         );
         return address(
             uint160(
-                uint256(
-                    keccak256(
-                        abi.encodePacked(
-                            bytes1(0xff), address(SUMMONER), _salt, keccak256(creationCode)
-                        )
-                    )
-                )
+                uint256(keccak256(abi.encodePacked(bytes1(0xff), address(SUMMONER), _salt, keccak256(creationCode))))
             )
         );
     }
 
-    /// @dev Predict the Shares proxy address for a given DAO.
-    /// Shares are deployed via CREATE2 from the DAO with salt = bytes32(bytes20(dao)).
-    function _predictShares(address dao) internal pure returns (address) {
+    /// @dev Predict a token proxy address deployed via CREATE2 from the DAO.
+    /// All token proxies (shares, loot, badges) use salt = bytes32(bytes20(dao))
+    /// and differ only by implementation address in the minimal proxy creation code.
+    function _predictToken(address dao, address impl) internal pure returns (address) {
         bytes32 _salt = bytes32(bytes20(dao));
-        bytes memory creationCode = abi.encodePacked(
-            hex"602d5f8160095f39f35f5f365f5f37365f73",
-            SHARES_IMPL,
-            hex"5af43d5f5f3e6029573d5ffd5b3d5ff3"
-        );
-        return address(
-            uint160(
-                uint256(
-                    keccak256(
-                        abi.encodePacked(bytes1(0xff), dao, _salt, keccak256(creationCode))
-                    )
-                )
-            )
-        );
+        bytes memory creationCode =
+            abi.encodePacked(hex"602d5f8160095f39f35f5f365f5f37365f73", impl, hex"5af43d5f5f3e6029573d5ffd5b3d5ff3");
+        return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), dao, _salt, keccak256(creationCode))))));
+    }
+
+    function _predictShares(address dao) internal pure returns (address) {
+        return _predictToken(dao, SHARES_IMPL);
+    }
+
+    function _predictLoot(address dao) internal pure returns (address) {
+        return _predictToken(dao, LOOT_IMPL);
     }
 }

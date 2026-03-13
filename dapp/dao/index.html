@@ -467,20 +467,55 @@ body.modal-open { overflow: hidden; }
   height: 24px;
 }
 
-/* Advanced settings */
-.advanced-toggle {
-  font-size: 12px;
+/* Preset cards */
+.preset-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.preset-card {
+  padding: 16px;
+  border: 1px solid var(--border);
   cursor: pointer;
-  padding: 12px 0;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: center;
+}
+.preset-card:hover { border-color: var(--fg); }
+.preset-card.selected { border-color: var(--fg); background: var(--surface); }
+.preset-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.preset-card-desc {
+  font-size: 11px;
   color: var(--fg-muted);
-  user-select: none;
+  line-height: 1.4;
 }
-.advanced-toggle:hover { color: var(--fg); }
-.advanced-settings {
-  display: none;
-  padding-top: 12px;
+.preset-card-specs {
+  font-size: 10px;
+  color: var(--fg-dim);
+  margin-top: 8px;
+  line-height: 1.5;
 }
-.advanced-settings.show { display: block; }
+.preset-fields { display: none; }
+.preset-fields.show { display: block; }
+.dao-upload-btn {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0;
+  border: 1.5px dashed var(--border-muted); cursor: pointer; overflow: hidden;
+  color: var(--fg-dim); font-size: 18px; transition: border-color 0.15s;
+}
+.dao-upload-btn:hover { border-color: var(--fg-muted); }
+.dao-upload-label { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; pointer-events: none; }
+.dao-upload-btn img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+}
+.dao-upload-btn img ~ .dao-upload-label { display: none; }
+.dao-upload-row { display: flex; align-items: center; gap: 12px; }
 .summon-button {
   width: 100%;
   padding: 14px 24px;
@@ -1814,6 +1849,8 @@ body.modal-open { overflow: hidden; }
   .tribute-offers { grid-template-columns: 1fr 1fr; }
   .treasury-assets { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); }
   .member-row { grid-template-columns: 1fr 80px auto; }
+  .preset-cards { grid-template-columns: 1fr; }
+  .majeur-logo { width: 22px; height: 22px; right: 56px; }
   .sale-ratio-grid { grid-template-columns: 1fr; gap: 4px; }
   .sale-ratio-arrow { display: none; }
 }
@@ -1830,13 +1867,36 @@ body.modal-open { overflow: hidden; }
 }
 .fire-loading { display: flex; justify-content: center; align-items: center; padding: 40px 0; }
 .fire-loading canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
-#fireHero { display: flex; justify-content: center; align-items: center; min-height: 60vh; }
+#fireHero { display: flex; justify-content: center; align-items: center; min-height: 60vh; position: relative; }
 #fireHero.hide { display: none; }
+#fireCanvas { position: relative; z-index: 1; transition: opacity 0.8s ease; }
+#fireCanvas.fade { opacity: 0; }
+/* Majeur logo - top right, subtle */
+.majeur-logo {
+  position: fixed; top: 14px; right: max(70px, calc(env(safe-area-inset-right) + 70px));
+  width: 32px; height: 32px; opacity: 0.4; z-index: 99; color: var(--fg);
+}
+.majeur-logo:hover { opacity: 0.7; }
+/* Banner overlay in hero */
+#heroBanner {
+  position: absolute; inset: 0; display: flex; justify-content: center; align-items: center;
+  opacity: 0; transition: opacity 1.2s ease; z-index: 2; pointer-events: none;
+}
+#heroBanner.show { opacity: 1; }
+#heroBanner svg { width: 100%; max-width: 600px; height: auto; color: var(--fg); }
+/* Banner pulse between themes */
+@keyframes bannerPulse {
+  0%, 45% { opacity: 0.6; }
+  50%, 95% { opacity: 0.15; }
+  100% { opacity: 0.6; }
+}
+#heroBanner.pulse svg { animation: bannerPulse 6s ease-in-out infinite; }
 </style>
 </head>
 <body>
 
 <button class="dark-toggle" onclick="toggleDark()" title="Toggle dark mode"></button>
+<div class="majeur-logo" title="Majeur"><svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><circle cx="100" cy="100" r="60" fill="none" stroke="currentColor" stroke-width="4" opacity="0.5"/><circle cx="100" cy="100" r="35" fill="none" stroke="currentColor" stroke-width="4" opacity="0.4"/><line x1="75" y1="0" x2="90" y2="100" stroke="currentColor" stroke-width="5" opacity="0.6"/><line x1="75" y1="200" x2="90" y2="100" stroke="currentColor" stroke-width="5" opacity="0.6"/><line x1="100" y1="0" x2="100" y2="100" stroke="currentColor" stroke-width="7" opacity="0.8"/><line x1="100" y1="200" x2="100" y2="100" stroke="currentColor" stroke-width="7" opacity="0.8"/><line x1="125" y1="0" x2="110" y2="100" stroke="currentColor" stroke-width="5" opacity="0.6"/><line x1="125" y1="200" x2="110" y2="100" stroke="currentColor" stroke-width="5" opacity="0.6"/></svg></div>
 <div class="z-nav">
   <button class="z-nav-btn" onclick="this.parentElement.classList.toggle('open')" title="Menu">
     <svg width="28" height="28" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"><rect class="zorg-bg" width="400" height="400"/><clipPath id="zh"><rect width="400" height="400"/></clipPath><g clip-path="url(#zh)"><path class="zorg-fg" d="M-60-20L460-20L460 90L80 310L460 310L460 420L-60 420L-60 310L320 90L-60 90Z"/></g></svg>
@@ -1862,7 +1922,7 @@ body.modal-open { overflow: hidden; }
 <h1>DAO</h1>
 
 <div class="nav-links">
-  <button onclick="getEl('summoner').scrollIntoView({ behavior: 'smooth' });">Summon</button> &middot;
+  <button onclick="const b=getEl('summonerBody');if(b&&b.style.display==='none')toggleSummoner();getEl('summoner').scrollIntoView({behavior:'smooth'});">Summon</button> &middot;
   <button onclick="scrollToYourDAOs()">Your DAOs</button> &middot;
   <button onclick="scrollToAllDAOs()">Find DAO</button> &middot;
   <a href="https://wp.majeurdao.eth.limo" target="_blank" rel="noopener noreferrer">Lite Paper</a> &middot;
@@ -1871,6 +1931,7 @@ body.modal-open { overflow: hidden; }
 
 <div id="fireHero">
   <canvas id="fireCanvas"></canvas>
+  <div id="heroBanner"><svg viewBox="0 0 1500 500" xmlns="http://www.w3.org/2000/svg"><text x="120" y="80" fill="currentColor" font-family="monospace" font-size="42" letter-spacing="0.1em" opacity="0.7" writing-mode="tb" glyph-orientation-vertical="0">MOLOCH</text><g transform="translate(750, 250)"><circle cx="0" cy="0" r="150" fill="none" stroke="currentColor" stroke-width="1" opacity="0.4"/><circle cx="0" cy="0" r="88" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"/><line x1="-63" y1="-250" x2="-25" y2="0" stroke="currentColor" stroke-width="1.2" opacity="0.5"/><line x1="-63" y1="250" x2="-25" y2="0" stroke="currentColor" stroke-width="1.2" opacity="0.5"/><line x1="0" y1="-250" x2="0" y2="0" stroke="currentColor" stroke-width="2" opacity="0.7"/><line x1="0" y1="250" x2="0" y2="0" stroke="currentColor" stroke-width="2" opacity="0.7"/><line x1="63" y1="-250" x2="25" y2="0" stroke="currentColor" stroke-width="1.2" opacity="0.5"/><line x1="63" y1="250" x2="25" y2="0" stroke="currentColor" stroke-width="1.2" opacity="0.5"/></g><text x="1380" y="80" fill="currentColor" font-family="monospace" font-size="42" letter-spacing="0.1em" opacity="0.7" writing-mode="tb" glyph-orientation-vertical="0">MAJEUR</text></svg></div>
 </div>
 
 <!-- TRANSFER RECEIPT MODAL -->
@@ -2094,378 +2155,71 @@ body.modal-open { overflow: hidden; }
         <div id="summonerBody" style="display: none;">
 
         <form id="summonForm">
-          <!-- Basic Info -->
-          <div class="form-group">
-            <label class="form-label">DAO Name</label>
-            <input type="text" class="form-input" id="daoName" placeholder="e.g., MetaGuild" required minlength="2" maxlength="50">
-            <span class="form-hint">2-50 characters</span>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">DAO Symbol</label>
-            <input type="text" class="form-input" id="daoSymbol" placeholder="e.g., META" maxlength="10" required>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Description <span class="form-hint" style="display: inline; text-transform: none;">(optional)</span></label>
-            <textarea class="form-input" id="daoDescription" placeholder="Describe your DAO's purpose, mission, or governance structure..." rows="3"></textarea>
-            <small class="form-hint">If empty, defaults to <a href="https://github.com/z0r0z/majeur?tab=readme-ov-file#wyoming-duna" target="_blank" rel="noopener" style="color: var(--fg); text-decoration: underline;">Wyoming DUNA</a> charter among members</small>
-          </div>
-
-          <!-- Quorum Settings -->
-          <div class="form-group">
-            <label class="form-label">Quorum %</label>
-            <input type="number" class="form-input" id="quorumBps" placeholder="50" min="0" max="100" value="50">
-            <small class="form-hint">Percentage of votes needed for proposal validity</small>
-            <div id="quorumVotesDisplay" class="info-box" style="display: none; margin-top: 8px;">
-              Required votes for quorum: <strong id="quorumVotesValue">0</strong> / <span id="quorumTotalSupply">0</span>
+          <!-- Preset Selection -->
+          <div class="preset-cards">
+            <div class="preset-card" onclick="selectPreset('standard')" id="presetStandard">
+              <div class="preset-card-name">Standard</div>
+              <div class="preset-card-desc">Treasuries, protocol governance, grants</div>
+              <div class="preset-card-specs">7-day voting / 2-day timelock / 10% quorum / ragequittable</div>
             </div>
-            <div id="quorumWarning" class="info-box" style="display: none; margin-top: 8px; background: var(--status-error); border-color: var(--red); color: var(--red);">
-              <strong>Warning:</strong> With this quorum % and initial supply, required quorum rounds down to <strong>0 votes</strong>. Increase quorum %, increase initial supply, or set an absolute quorum.
+            <div class="preset-card" onclick="selectPreset('fast')" id="presetFast">
+              <div class="preset-card-name">Fast</div>
+              <div class="preset-card-desc">Agile teams, working groups, sub-DAOs</div>
+              <div class="preset-card-specs">3-day voting / 1-day timelock / 5% quorum / ragequittable</div>
+            </div>
+            <div class="preset-card" onclick="selectPreset('founder')" id="presetFounder">
+              <div class="preset-card-name">Founder</div>
+              <div class="preset-card-desc">Solo founder, full control, move fast</div>
+              <div class="preset-card-specs">1-day voting / no timelock / 10% quorum / ragequittable</div>
             </div>
           </div>
 
-          <!-- Members -->
-          <div class="form-group">
-            <label class="form-label">Founding Members</label>
-            <div class="members-container">
-              <div id="foundingMembersList">
-                <!-- Initial member (connected wallet) will be added by JS -->
-              </div>
-              <button type="button" class="add-member-btn" onclick="addMemberRow()">+ Add Member</button>
-            </div>
-          </div>
-
-          <!-- Advanced Settings -->
-          <div class="advanced-toggle" onclick="toggleAdvanced()">
-            ▼ Advanced Settings
-          </div>
-
-          <div class="advanced-settings" id="advancedSettings">
+          <!-- Shared Fields (shown after preset selected) -->
+          <div class="preset-fields" id="presetFields">
             <div class="form-group">
+              <label class="form-label">DAO Name</label>
+              <input type="text" class="form-input" id="daoName" placeholder="Majeur" value="Majeur" required minlength="2" maxlength="50">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">DAO Symbol</label>
+              <input type="text" class="form-input" id="daoSymbol" placeholder="MAJ" value="MAJ" maxlength="10" required>
+            </div>
+
+            <!-- Image (optional) -->
+            <div class="form-group">
+              <label class="form-label">Logo <span class="form-hint" style="display: inline; text-transform: none;">(optional)</span></label>
+              <div class="dao-upload-row">
+                <label class="dao-upload-btn" for="daoImageInput" title="Upload logo"><span class="dao-upload-label">Logo</span></label>
+                <input type="file" id="daoImageInput" accept="image/*" style="display:none" onchange="daoImagePicked(this)">
+                <small class="form-hint">Upload a logo (5 MB max). If empty, your symbol is shown as the emblem.</small>
+              </div>
+            </div>
+
+            <!-- Members (Standard & Fast only) -->
+            <div class="form-group" id="membersSection">
+              <label class="form-label">Founding Members</label>
+              <div class="members-container">
+                <div id="foundingMembersList">
+                  <!-- Initial member (connected wallet) will be added by JS -->
+                </div>
+                <button type="button" class="add-member-btn" onclick="addMemberRow()">+ Add Member</button>
+              </div>
+            </div>
+
+            <!-- Lock shares toggle (Standard & Fast only) -->
+            <div class="form-group" id="lockSharesSection">
               <label class="form-label checkbox-group">
-                <input type="checkbox" id="ragequittable" checked>
-                <span>Enable Ragequit</span>
+                <input type="checkbox" id="lockShares">
+                <span>Lock Shares (non-transferable)</span>
               </label>
-              <small class="form-hint">Allow members to exit with pro-rata treasury</small>
+              <small class="form-hint">Shares cannot be transferred between members</small>
             </div>
 
-            <div class="form-group">
-              <label class="form-label checkbox-group">
-                <input type="checkbox" id="distributeLoot">
-                <span>Distribute Loot to Founders</span>
-              </label>
-              <div id="lootDistribution" style="display: none; margin-top: 8px;">
-                <div style="margin-bottom: 8px;">
-                  <label class="form-label checkbox-group">
-                    <input type="checkbox" id="equalLoot" checked>
-                    <span>Equal distribution</span>
-                  </label>
-                </div>
-                <input type="number" class="form-input" id="lootPerMember" placeholder="100" value="100" min="0.000000000000000001" step="any">
-                <small class="form-hint">Loot tokens per member (or total if custom)</small>
-                <div id="customLootAmounts" style="margin-top: 16px; display: none;">
-                  <!-- Will be populated with inputs for each member -->
-                </div>
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Proposal TTL</label>
-              <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px;">
-                <input type="number" class="form-input" id="proposalTTL" placeholder="7" value="7">
-                <select class="form-input" id="proposalTTLUnit" style="width: auto;">
-                  <option value="86400" selected>Days</option>
-                  <option value="3600">Hours</option>
-                  <option value="60">Minutes</option>
-                  <option value="1">Seconds</option>
-                </select>
-              </div>
-              <small class="form-hint">Time until proposals expire</small>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Timelock Delay</label>
-              <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px;">
-                <input type="number" class="form-input" id="timelockDelay" placeholder="1" value="1">
-                <select class="form-input" id="timelockDelayUnit" style="width: auto;">
-                  <option value="86400" selected>Days</option>
-                  <option value="3600">Hours</option>
-                  <option value="60">Minutes</option>
-                  <option value="1">Seconds</option>
-                </select>
-              </div>
-              <small class="form-hint">Delay between proposal passing and execution</small>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Proposal Threshold (optional)</label>
-              <input type="number" class="form-input" id="proposalThreshold" placeholder="0" min="0" step="1">
-              <small class="form-hint">Minimum shares required to create a proposal (cannot exceed total initial shares)</small>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Emblem/Logo URL (optional)</label>
-              <input type="text" class="form-input" id="daoImageURI" placeholder="https://example.com/logo.svg or ipfs://...">
-              <small class="form-hint">Direct image URL for DAO emblem (SVG, PNG, JPG, etc.) or IPFS</small>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Initial ETH Deposit (optional)</label>
-              <input type="number" class="form-input" id="initialEthDeposit" placeholder="0" min="0" step="any">
-              <small class="form-hint">Amount of ETH to deposit into treasury during summoning</small>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label checkbox-group">
-                <input type="checkbox" id="enableSharesTransfer">
-                <span>Enable Shares Transferability</span>
-              </label>
-              <small class="form-hint">Allow shares to be transferred</small>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label checkbox-group">
-                <input type="checkbox" id="enableLootTransfer">
-                <span>Enable Loot Transferability</span>
-              </label>
-              <small class="form-hint">Allow loot to be transferred</small>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Auto-Futarchy (Voter Rewards)</label>
-              <select class="form-input" id="autoFutarchyPreset">
-                <option value="off" selected>Off</option>
-                <option value="low">Low: 0.05% supply, 2 LOOT cap</option>
-                <option value="standard">Standard: 0.1% supply, 5 LOOT cap</option>
-                <option value="high">High: 0.5% supply, 10 LOOT cap</option>
-              </select>
-              <small class="form-hint">Mint LOOT rewards for winning voters (% of shares+loot supply, capped per proposal)</small>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Initial Token Sale</label>
-              <select class="form-input" id="initialSalePreset" onchange="toggleSaleConfig()">
-                <option value="off" selected>Off (No initial sale)</option>
-                <option value="internal">Token Wrapping (1:1 mint)</option>
-                <option value="daico">Token Sale (DAICO)</option>
-              </select>
-              <small class="form-hint">Configure how users can acquire DAO tokens</small>
-            </div>
-
-            <div id="saleConfigSection" class="sale-config" style="display: none;">
-              <div id="saleTypeDescription" class="sale-info-box">
-                <span id="saleTypeDescText"></span>
-              </div>
-
-              <!-- Internal Sale Payment Token (simplified: Custom or DAI only) -->
-              <div class="form-group" id="internalPaymentTokenGroup">
-                <label class="form-label">Wrap Token</label>
-                <div style="position: relative;">
-                  <div id="internalPaymentTokenDisplay" onclick="toggleInternalPaymentTokenDropdown()" class="token-select">
-                    <div class="token-dropdown-icon" id="internalPaymentTokenIcon"></div>
-                    <span id="internalPaymentTokenLabel">Custom Token (18 decimals)</span>
-                  </div>
-                  <div id="internalPaymentTokenDropdown" class="custom-dropdown" style="display: none;">
-                    <div onclick="selectInternalPaymentToken('custom')" class="token-dropdown-item">
-                      <div class="token-dropdown-icon" data-token="defaultCoin"></div>
-                      <div>
-                        <div>Custom Token (18 decimals)</div>
-                        <small class="form-hint" style="margin: 0;">Wrap any 18-decimal ERC20 into DAO shares 1:1</small>
-                      </div>
-                    </div>
-                    <div onclick="selectInternalPaymentToken('dai')" class="token-dropdown-item">
-                      <div class="token-dropdown-icon" data-token="dai"></div>
-                      <div>
-                        <div>DAI</div>
-                        <small class="form-hint" style="margin: 0;">Accept DAI stablecoin 1:1 for DAO shares</small>
-                      </div>
-                    </div>
-                  </div>
-                  <input type="hidden" class="form-input" id="internalPaymentToken" value="custom">
-                </div>
-                <small id="internalPaymentTokenHint" class="form-hint">1 token in = 1 share out. Ideal for token upgrades or migrations.</small>
-              </div>
-
-              <!-- DAICO Sale Payment Token (full options) -->
-              <div class="form-group" id="daicoPaymentTokenGroup" style="display: none;">
-                <label class="form-label">Payment Token</label>
-                <div style="position: relative;">
-                  <div id="salePaymentTokenDisplay" onclick="toggleSalePaymentTokenDropdown()" class="token-select">
-                    <div class="token-dropdown-icon" id="salePaymentTokenIcon"></div>
-                    <span id="salePaymentTokenLabel">ETH</span>
-                  </div>
-                  <div id="salePaymentTokenDropdown" class="custom-dropdown" style="display: none;">
-                    <div onclick="selectSalePaymentToken('eth')" class="token-dropdown-item">
-                      <div class="token-dropdown-icon" data-token="eth"></div>
-                      <span>ETH</span>
-                    </div>
-                    <div onclick="selectSalePaymentToken('usdc')" id="saleUsdcOption" class="token-dropdown-item">
-                      <div class="token-dropdown-icon" data-token="usdc"></div>
-                      <span>USDC</span>
-                    </div>
-                    <div onclick="selectSalePaymentToken('usdt')" id="saleUsdtOption" class="token-dropdown-item">
-                      <div class="token-dropdown-icon" data-token="usdt"></div>
-                      <span>USDT</span>
-                    </div>
-                    <div onclick="selectSalePaymentToken('dai')" class="token-dropdown-item">
-                      <div class="token-dropdown-icon" data-token="dai"></div>
-                      <span>DAI</span>
-                    </div>
-                    <div onclick="selectSalePaymentToken('wsteth')" class="token-dropdown-item">
-                      <div class="token-dropdown-icon" data-token="wsteth"></div>
-                      <span>wstETH</span>
-                    </div>
-                    <div onclick="selectSalePaymentToken('reth')" class="token-dropdown-item">
-                      <div class="token-dropdown-icon" data-token="reth"></div>
-                      <span>rETH</span>
-                    </div>
-                    <div onclick="selectSalePaymentToken('custom')" class="token-dropdown-item">
-                      <div class="token-dropdown-icon" data-token="defaultCoin"></div>
-                      <span>Custom Token</span>
-                    </div>
-                  </div>
-                  <input type="hidden" class="form-input" id="salePaymentToken" value="eth">
-                </div>
-                <small id="salePaymentTokenHint" class="form-hint">Accept any token: ETH, stablecoins (USDC/USDT/DAI), or custom ERC20.</small>
-              </div>
-
-              <div class="form-group" id="customTokenFields" style="display: none;">
-                <label class="form-label">Custom Token Address</label>
-                <input type="text" class="form-input" id="customTokenAddress" placeholder="0x..." oninput="validateCustomPaymentToken()">
-                <small class="form-hint">Enter the ERC20 token contract address. Decimals will be detected automatically.</small>
-                <div id="customPaymentTokenInfo" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
-              </div>
-
-              <!-- Hidden field for auto-detected decimals -->
-              <input type="hidden" id="customTokenDecimals" value="18">
-
-              <div class="form-group">
-                <label class="form-label">Token Type</label>
-                <select class="form-input" id="saleTokenType" onchange="updateSaleThresholdWarning(); updateDaicoLabels(); updateDaicoSaleSummary(); updateSummonerSaleHint();">
-                  <option value="shares">Shares (voting power)</option>
-                  <option value="loot">Loot (non-voting)</option>
-                </select>
-              </div>
-
-              <!-- DAICO-specific: Sale Supply (for minting to DAO and approving) -->
-              <div class="form-group" id="daicoSupplyField" style="display: none;">
-                <label class="form-label">Total Sale Supply</label>
-                <input type="text" class="form-input daico-formatted-input" id="daicoSaleSupply" placeholder="100,000,000" oninput="formatDaicoNumberInput(this); updateDaicoSaleSummary();">
-                <small class="form-hint">Total tokens to mint for sale (e.g., 100,000,000). This is the maximum that can be sold.</small>
-              </div>
-
-              <div id="internalSaleFields">
-                <input type="hidden" id="salePrice" value="1">
-                <input type="hidden" id="saleCap" value="0">
-                <input type="hidden" id="saleMinting" value="true">
-                <div class="sale-summary">
-                  <strong>How it works:</strong>
-                  <div id="internalWrapSummary" style="margin-top: 4px;">
-                    Users deposit tokens → receive DAO shares 1:1<br>
-                    <span class="form-hint">With ragequit enabled, users can burn shares to reclaim tokens anytime.</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- DAICO-specific: Ratio pricing with clear explanations -->
-              <div id="daicoSaleFields" style="display: none;">
-                <!-- Sale ratio explanation -->
-                <div class="sale-info-box" style="margin-bottom: 16px; color: var(--fg-muted);">
-                  <strong>Set your sale price:</strong> Define how many tokens buyers receive for their payment.
-                </div>
-
-                <div class="sale-ratio-grid">
-                  <div class="form-group" style="margin-bottom: 0;">
-                    <label class="form-label">Pay <span id="daicoPayTokenLabel">(ETH)</span></label>
-                    <input type="text" class="form-input daico-formatted-input" id="daicoTribAmt" placeholder="1" oninput="formatDaicoNumberInput(this); updateDaicoSaleSummary();">
-                    <small class="form-hint">Payment amount</small>
-                  </div>
-                  <div class="sale-ratio-arrow">→</div>
-                  <div class="form-group" style="margin-bottom: 0;">
-                    <label class="form-label">Receive <span id="daicoReceiveLabel">(Shares)</span></label>
-                    <input type="text" class="form-input daico-formatted-input" id="daicoForAmt" placeholder="1,000,000" oninput="formatDaicoNumberInput(this); updateDaicoSaleSummary();">
-                    <small class="form-hint">Tokens received</small>
-                  </div>
-                </div>
-
-                <!-- Live sale summary -->
-                <div id="daicoSaleSummaryBox" class="sale-summary" style="display: none; margin-bottom: 16px;">
-                  <div class="form-hint" style="margin-bottom: 6px;">Sale Terms:</div>
-                  <div id="daicoSaleSummaryText" style="font-weight: 600; line-height: 1.5;"></div>
-                  <div id="daicoSalePriceText" class="form-hint" style="margin-top: 6px;"></div>
-                </div>
-
-                <!-- DAICO LP Configuration (Optional) -->
-                <div id="daicoSummonLPSection" class="info-box" style="display: none; margin-bottom: 16px;">
-                  <label class="form-label checkbox-group" style="margin-bottom: 8px;">
-                    <input type="checkbox" id="daicoSummonEnableLP" onchange="toggleDaicoSummonLPFields(); updateDaicoSaleSummary();">
-                    <span>Enable Liquidity Provision (LP)</span>
-                  </label>
-                  <div id="daicoSummonLPFields" style="display: none;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-                      <div class="form-group" style="margin-bottom: 0;">
-                        <label class="form-label">LP %</label>
-                        <input type="number" class="form-input" id="daicoSummonLpBps" placeholder="50" min="1" max="99" step="1" value="50" oninput="updateDaicoSaleSummary();">
-                        <small class="form-hint">% of tribute to LP (1-99)</small>
-                      </div>
-                      <div class="form-group" style="margin-bottom: 0;">
-                        <label class="form-label">Pool Fee (bps)</label>
-                        <input type="number" class="form-input" id="daicoSummonFeeOrHook" placeholder="30" min="1" max="10000" step="1" value="30">
-                        <small class="form-hint">ZAMM pool fee (30 = 0.3%)</small>
-                      </div>
-                    </div>
-                    <small class="form-hint"><strong>Note:</strong> Buyers receive (100% - LP%) of quoted rate. LP shares go to DAO treasury.</small>
-                  </div>
-                </div>
-
-                <!-- DAICO Tap Configuration (Optional) -->
-                <div id="daicoSummonTapSection" class="info-box" style="display: none; margin-bottom: 16px;">
-                  <label class="form-label checkbox-group" style="margin-bottom: 8px;">
-                    <input type="checkbox" id="daicoSummonEnableTap" onchange="toggleDaicoSummonTapFields(); updateDaicoSaleSummary();">
-                    <span>Enable Tap (Continuous Funding)</span>
-                  </label>
-                  <div id="daicoSummonTapFields" style="display: none;">
-                    <div class="form-group">
-                      <label class="form-label">Ops Address (Tap Beneficiary)</label>
-                      <input type="text" class="form-input" id="daicoSummonTapOps" placeholder="0x...">
-                      <small class="form-hint">Address that can claim tap funds</small>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-                      <div class="form-group" style="margin-bottom: 0;">
-                        <label class="form-label">Tap Rate (per month)</label>
-                        <input type="text" class="form-input daico-formatted-input" id="daicoSummonTapRate" placeholder="1,000" oninput="formatDaicoNumberInput(this); updateDaicoSummonTapPreview();">
-                        <small class="form-hint">Payment tokens/month</small>
-                      </div>
-                      <div class="form-group" style="margin-bottom: 0;">
-                        <label class="form-label">Total Tap Budget</label>
-                        <input type="text" class="form-input daico-formatted-input" id="daicoSummonTapBudget" placeholder="100,000" oninput="formatDaicoNumberInput(this); updateDaicoSummonTapPreview();">
-                        <small class="form-hint">Max claimable amount</small>
-                      </div>
-                    </div>
-                    <div id="daicoSummonTapPreview" class="form-hint" style="display: none;"></div>
-                  </div>
-                </div>
-              </div>
-
-              <div id="summonerSaleHint" class="sale-info-box" style="display: none; margin-top: 8px;">
-                <strong>Sale Preview:</strong> <span id="summonerSaleHintText"></span>
-              </div>
-
-              <!-- Proposal threshold warning for shares sales -->
-              <div id="saleThresholdWarning" style="display: none; margin-top: 0.5rem; padding: 0.75rem; background: var(--status-warning); border-left: 3px solid var(--warning-accent); font-size: 0.8rem; color: var(--amber); line-height: 1.5;">
-                <strong style="color: var(--warning-accent);">Governance Warning:</strong> <span id="saleThresholdWarningText">Selling voting shares with a proposal threshold may allow buyers to accumulate enough shares to pass proposals. Consider selling LOOT (non-voting) for public sales, or ensure the sale cap is appropriately limited.</span>
-              </div>
-
-              <div id="upgradePathHint" class="sale-info-box" style="display: none; margin-top: 8px; color: var(--fg-muted);">
-                <strong>Token Upgrade Path:</strong> With 1:1 pricing and ragequit enabled, users can upgrade their tokens to DAO shares, then burn shares to reclaim tokens if desired, lowering risk.
-              </div>
-            </div>
+            <button type="submit" class="summon-button" id="summonBtn" disabled>
+              CONNECT WALLET TO SUMMON
+            </button>
           </div>
-
-          <button type="submit" class="summon-button" id="summonBtn" disabled>
-            CONNECT WALLET TO SUMMON
-          </button>
         </form>
 
         <div id="statusMessage"></div>
@@ -3120,26 +2874,16 @@ body.modal-open { overflow: hidden; }
       // Returns data URI with JSON for on-chain storage, or empty string if no description/image
       // Note: If empty, the on-chain renderer displays default DUNA charter
       function buildContractURI(name, symbol, description, imageUrl) {
-        const hasDescription = description && description.trim();
-        const hasImage = imageUrl && imageUrl.trim();
-
-        // If neither description nor image, return empty to trigger renderer's DUNA default
-        if (!hasDescription && !hasImage) {
-          return '';
-        }
-
         const metadata = {
           name: name || '',
           symbol: symbol || ''
         };
 
-        // Add description if provided
-        if (hasDescription) {
+        if (description && description.trim()) {
           metadata.description = description.trim();
         }
 
-        // Add image if provided
-        if (hasImage) {
+        if (imageUrl && imageUrl.trim()) {
           metadata.image = imageUrl.trim();
         }
 
@@ -3152,8 +2896,7 @@ body.modal-open { overflow: hidden; }
         const formData = {
           daoName: getEl('daoName')?.value || '',
           daoSymbol: getEl('daoSymbol')?.value || '',
-          daoDescription: getEl('daoDescription')?.value || '',
-          quorumBps: getEl('quorumBps')?.value || '50',
+          preset: selectedPreset || '',
           timestamp: Date.now()
         };
         try {
@@ -3161,7 +2904,6 @@ body.modal-open { overflow: hidden; }
         } catch (e) {
           if (e.name === 'QuotaExceededError') {
             logger.error('localStorage quota exceeded - draft not saved');
-            // Silent failure acceptable for draft auto-save
           } else {
             logger.error('Failed to save draft:', e);
           }
@@ -3174,12 +2916,10 @@ body.modal-open { overflow: hidden; }
           const saved = localStorage.getItem(CONSTANTS.STORAGE_KEY_SUMMON);
           if (saved) {
             const data = JSON.parse(saved);
-            // Only restore if less than 24 hours old
             if (Date.now() - data.timestamp < CONSTANTS.DRAFT_RETENTION_MS) {
               if (getEl('daoName')) getEl('daoName').value = data.daoName || '';
               if (getEl('daoSymbol')) getEl('daoSymbol').value = data.daoSymbol || '';
-              if (getEl('daoDescription')) getEl('daoDescription').value = data.daoDescription || '';
-              if (getEl('quorumBps')) getEl('quorumBps').value = data.quorumBps || '50';
+              if (data.preset) selectPreset(data.preset);
             }
           }
         } catch (e) {
@@ -3237,8 +2977,133 @@ body.modal-open { overflow: hidden; }
           "outputs": [{"internalType": "contract Moloch", "name": "dao", "type": "address"}],
           "stateMutability": "payable",
           "type": "function"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {"indexed": true, "name": "summoner", "type": "address"},
+            {"indexed": true, "name": "dao", "type": "address"}
+          ],
+          "name": "NewDAO",
+          "type": "event"
         }
       ];
+
+      const SAFE_SUMMONER_ADDRESS = '0x00000000004473e1f31C8266612e7FD5504e6f2a';
+      const SAFE_SUMMONER_ABI = [
+        {
+          "inputs": [
+            {"type": "string", "name": "orgName"},
+            {"type": "string", "name": "orgSymbol"},
+            {"type": "string", "name": "orgURI"},
+            {"type": "bytes32", "name": "salt"},
+            {"type": "address[]", "name": "initHolders"},
+            {"type": "uint256[]", "name": "initShares"},
+            {"type": "bool", "name": "lockShares"}
+          ],
+          "name": "summonStandard",
+          "outputs": [{"type": "address"}],
+          "stateMutability": "payable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {"type": "string", "name": "orgName"},
+            {"type": "string", "name": "orgSymbol"},
+            {"type": "string", "name": "orgURI"},
+            {"type": "bytes32", "name": "salt"},
+            {"type": "address[]", "name": "initHolders"},
+            {"type": "uint256[]", "name": "initShares"},
+            {"type": "bool", "name": "lockShares"}
+          ],
+          "name": "summonFast",
+          "outputs": [{"type": "address"}],
+          "stateMutability": "payable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {"type": "string", "name": "orgName"},
+            {"type": "string", "name": "orgSymbol"},
+            {"type": "string", "name": "orgURI"},
+            {"type": "bytes32", "name": "salt"}
+          ],
+          "name": "summonFounder",
+          "outputs": [{"type": "address"}],
+          "stateMutability": "payable",
+          "type": "function"
+        }
+      ];
+
+      let selectedPreset = null;
+
+      function selectPreset(preset) {
+        selectedPreset = preset;
+        // Update card selection
+        document.querySelectorAll('.preset-card').forEach(c => c.classList.remove('selected'));
+        document.getElementById('preset' + preset.charAt(0).toUpperCase() + preset.slice(1)).classList.add('selected');
+        // Show fields
+        document.getElementById('presetFields').classList.add('show');
+        // Show/hide member and lockShares sections based on preset
+        const isFounder = preset === 'founder';
+        document.getElementById('membersSection').style.display = isFounder ? 'none' : 'block';
+        document.getElementById('lockSharesSection').style.display = isFounder ? 'none' : 'block';
+      }
+
+      // ── IPFS Pinning ──
+      const DAO_PIN_URL = 'https://zfi-pin.rosscampbell9.workers.dev';
+      let _daoImageFile = null;
+      let _daoImageCID = null;
+
+      function daoImagePicked(input) {
+        const file = input.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) { alert('Too large (5 MB max)'); input.value = ''; return; }
+        _daoImageFile = file;
+        _daoImageCID = null;
+        const btn = input.previousElementSibling;
+        const reader = new FileReader();
+        reader.onload = () => {
+          let img = btn.querySelector('img');
+          if (!img) { img = document.createElement('img'); btn.textContent = ''; btn.appendChild(img); }
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      }
+
+      async function daoPinFile(file, cachedCID) {
+        if (!file) return null;
+        if (cachedCID) return cachedCID;
+        const form = new FormData();
+        form.append('file', file, file.name);
+        const res = await fetch(DAO_PIN_URL + '/pin-image', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Image pin failed');
+        return data.cid;
+      }
+
+      async function daoPinMetadata(metadata) {
+        const res = await fetch(DAO_PIN_URL + '/pin-json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(metadata),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Metadata pin failed');
+        return 'ipfs://' + data.cid;
+      }
+
+      function daoSvgEsc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+      function daoGenerateLogo(symbol) {
+        const t = daoSvgEsc(symbol.slice(0, 12));
+        const fs = Math.min(300, Math.floor(900 / symbol.slice(0, 12).length));
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><rect width="1024" height="1024" fill="#000"/><text x="512" y="512" text-anchor="middle" dominant-baseline="central" font-family="Helvetica,Arial,sans-serif" font-size="${fs}" font-weight="400" fill="#fff">${t}</text></svg>`;
+      }
+
+      function daoSvgToFile(svg, filename) {
+        return new File([svg], filename, { type: 'image/svg+xml' });
+      }
 
       const VIEW_HELPER_ADDRESS = '0x00000000006631040967E58e3430e4B77921a2db';
       const TRIBUTE_ADDRESS = '0x000000000066524fcf78Dc1E41E9D525d9ea73D0';
@@ -14341,8 +14206,12 @@ body.modal-open { overflow: hidden; }
                 emblem.classList.add('url-image');
               }
             }
+          } else if (metadata && metadata.symbol) {
+            // No image - show symbol as emblem text
+            emblem.classList.add('description-only');
+            emblem.innerHTML = `<div class="tile-emblem-description" style="font-size: 18px; font-weight: 600; letter-spacing: 0.05em;">${escapeHtml(metadata.symbol)}</div>`;
           } else if (metadata && metadata.description) {
-            // No image but has description - show truncated description in tile
+            // No image or symbol - show truncated description in tile
             emblem.classList.add('description-only');
             const truncatedDesc = metadata.description.length > 50
               ? metadata.description.slice(0, 47) + '...'
@@ -17946,6 +17815,11 @@ body.modal-open { overflow: hidden; }
           if (!_signer) return;
         }
 
+        if (!selectedPreset) {
+          showStatus('Please select a preset', true);
+          return;
+        }
+
         const summonBtn = document.getElementById('summonBtn');
         summonBtn.disabled = true;
         summonBtn.textContent = 'SUMMONING...';
@@ -17965,537 +17839,91 @@ body.modal-open { overflow: hidden; }
           _signer = await _walletProvider.getSigner();
 
           // Gather form data
-          const daoName = getEl('daoName').value;
-          const daoSymbol = getEl('daoSymbol').value;
-          const daoDescription = document.getElementById('daoDescription').value.trim();
-          const daoImageURI = document.getElementById('daoImageURI')?.value.trim() || '';
+          const daoName = getEl('daoName').value.trim();
+          const daoSymbol = getEl('daoSymbol').value.trim();
+          if (!daoName || daoName.length < 2) throw new Error('DAO name must be at least 2 characters');
+          if (!daoSymbol) throw new Error('DAO symbol is required');
 
-          // Build contractURI with description (defaults to DUNA if empty) and optional image
-          const daoURI = buildContractURI(daoName, daoSymbol, daoDescription, daoImageURI);
-          const quorumBps = Math.floor(parseFloat(getEl('quorumBps').value || 50) * 100);
-          const ragequittable = document.getElementById('ragequittable').checked;
-
-          // Collect members
-          const memberRows = document.querySelectorAll('.member-row');
-          const initHolders = [];
-          const initShares = [];
-
-          for (const row of memberRows) {
-            const addressInput = row.querySelector('.member-address').value.trim();
-            const sharesInput = row.querySelector('.member-shares').value;
-
-            if (addressInput && sharesInput) {
-              const address = await resolveENS(addressInput);
-              if (!ethers.isAddress(address)) {
-                throw new Error(`Invalid address: ${addressInput}`);
-              }
-
-              if (initHolders.includes(address)) {
-                throw new Error(`Duplicate member address: ${addressInput}`);
-              }
-              initHolders.push(address);
-              // Convert shares to wei (18 decimals) - ethers v6
-              initShares.push(ethers.parseEther(sharesInput));
-            }
+          // Pin image to IPFS (upload or generate symbol SVG)
+          const metadata = { name: daoName, symbol: daoSymbol };
+          if (_daoImageFile) {
+            showStatus('Uploading logo to IPFS...');
+            _daoImageCID = await daoPinFile(_daoImageFile, _daoImageCID);
+            metadata.image = 'ipfs://' + _daoImageCID;
+          } else {
+            showStatus('Generating logo...');
+            const logoSvg = daoGenerateLogo(daoSymbol);
+            const logoCID = await daoPinFile(daoSvgToFile(logoSvg, 'logo.svg'), null);
+            metadata.image = 'ipfs://' + logoCID;
           }
+          showStatus('Pinning metadata...');
+          const daoURI = await daoPinMetadata(metadata);
 
-          if (initHolders.length === 0) {
-            throw new Error('At least one member is required');
-          }
-
-          // Calculate total initial shares for validation
-          let totalShares = 0n;
-          for (const shares of initShares) {
-            totalShares += shares;
-          }
-
-          // Validate quorum settings
-          const requiredVotes = (BigInt(quorumBps) * totalShares) / 10000n;
-          if (quorumBps > 0 && totalShares > 0n && requiredVotes === 0n) {
-            const continueAnyway = confirm(
-              '⚠️ WARNING: Your quorum percentage and initial supply combination results in 0 required votes for quorum.\n\n' +
-              'This effectively disables dynamic quorum for proposals.\n\n' +
-              'Recommendations:\n' +
-              '• Increase quorum percentage\n' +
-              '• Increase initial supply\n' +
-              '• Set an absolute quorum after deployment\n\n' +
-              'Do you want to continue anyway?'
-            );
-            if (!continueAnyway) {
-              throw new Error('Summoning cancelled due to invalid quorum configuration');
-            }
-          }
-
-          // Validate proposal threshold if specified
-          const proposalThresholdInput = getEl('proposalThreshold').value;
-          let proposalThresholdWei = 0n;
-          if (proposalThresholdInput && parseFloat(proposalThresholdInput) > 0) {
-            proposalThresholdWei = ethers.parseEther(proposalThresholdInput);
-
-            // Calculate max potential voting shares (initial + DAICO sale if selling shares)
-            let maxPotentialShares = totalShares;
-            const salePreset = getEl('initialSalePreset').value;
-            const saleTokenType = getEl('saleTokenType').value;
-
-            if (salePreset === 'daico' && saleTokenType === 'shares') {
-              const daicoSupplyInput = getEl('daicoSaleSupply').value?.replace(/,/g, '');
-              if (daicoSupplyInput && parseFloat(daicoSupplyInput) > 0) {
-                maxPotentialShares += ethers.parseEther(daicoSupplyInput);
-              }
-            }
-
-            if (proposalThresholdWei > maxPotentialShares) {
-              const supplyDesc = salePreset === 'daico' && saleTokenType === 'shares'
-                ? `total potential shares (${ethers.formatEther(totalShares)} initial + ${getEl('daicoSaleSupply').value || '0'} DAICO = ${ethers.formatEther(maxPotentialShares)})`
-                : `total initial shares (${ethers.formatEther(totalShares)})`;
-              throw new Error(`Proposal threshold (${proposalThresholdInput}) cannot exceed ${supplyDesc}`);
-            }
-          }
-
-          // Generate random salt ONCE for this entire summon operation
+          // Generate random salt
           const salt = ethers.randomBytes(32);
-          const saltHex = ethers.hexlify(salt);
 
+          // Connect to SafeSummoner
+          const safeSummoner = new ethers.Contract(SAFE_SUMMONER_ADDRESS, SAFE_SUMMONER_ABI, _signer);
 
-          // Connect to summoner
+          // Also connect to raw summoner for event parsing
           const summoner = new ethers.Contract(SUMMONER_ADDRESS, SUMMONER_ABI, _signer);
 
-          // Ensure initShares are BigInt for consistent encoding
-          const initSharesForPrediction = initShares.map(s => BigInt(s.toString()));
-
-          // Predict all addresses using the Solidity reference implementation
-          const predictions = predictMajeurAddresses(
-            initHolders,
-            initSharesForPrediction,
-            salt
-          );
-
-          const predictedDao = predictions.dao;
-          const predictedShares = predictions.shares;
-          const predictedLoot = predictions.loot;
-
-          // Prepare init calls with predicted DAO address
-          const initCalls = [];
-
-          // Add proposal TTL setting if specified
-          const proposalTTL = getSecondsFromInput('proposalTTL', 'proposalTTLUnit');
-          if (proposalTTL > 0) {
-            initCalls.push({
-              target: predictedDao, // Self-call to the DAO
-              value: 0n,
-              data: INTERFACES.setProposalTTL.encodeFunctionData('setProposalTTL', [proposalTTL])
-            });
-          }
-
-          // Add timelock delay setting if specified
-          const timelockDelay = getSecondsFromInput('timelockDelay', 'timelockDelayUnit');
-          if (timelockDelay > 0) {
-            initCalls.push({
-              target: predictedDao, // Self-call to the DAO
-              value: 0n,
-              data: INTERFACES.setTimelockDelay.encodeFunctionData('setTimelockDelay', [timelockDelay])
-            });
-          }
-
-          // Add loot distribution if enabled
-          const distributeLoot = getEl('distributeLoot').checked;
-          if (distributeLoot) {
-            // Collect loot amounts for each member
-            const lootAmounts = [];
-            const equalLoot = document.getElementById('equalLoot').checked;
-
-            if (equalLoot) {
-              // Equal distribution
-              const lootPerMember = document.getElementById('lootPerMember').value || '100';
-              const lootAmount = ethers.parseEther(lootPerMember);
-              for (let i = 0; i < initHolders.length; i++) {
-                lootAmounts.push(lootAmount);
-              }
-            } else {
-              // Custom amounts
-              const customInputs = document.querySelectorAll('.custom-loot-amount');
-              for (let i = 0; i < initHolders.length; i++) {
-                const input = customInputs[i];
-                const amount = input?.value || '0';
-                lootAmounts.push(ethers.parseEther(amount));
-              }
-            }
-
-            // To mint loot during init, we use the predicted loot proxy address
-            // Create direct loot minting calls
-
-            for (let i = 0; i < initHolders.length; i++) {
-              if (lootAmounts[i] > 0n) {
-                initCalls.push({
-                  target: predictedLoot,
-                  value: 0n,
-                  data: INTERFACES.mintFromMoloch.encodeFunctionData('mintFromMoloch', [
-                    initHolders[i],
-                    lootAmounts[i]
-                  ])
-                });
-              }
-            }
-
-          }
-
-          // Add proposal threshold setting if specified
-          if (proposalThresholdWei > 0n) {
-            initCalls.push({
-              target: predictedDao, // Self-call to the DAO
-              value: 0n,
-              data: INTERFACES.setProposalThreshold.encodeFunctionData('setProposalThreshold', [proposalThresholdWei])
-            });
-          }
-
-          // Add transferability settings if either is enabled
-          const enableSharesTransfer = document.getElementById('enableSharesTransfer').checked;
-          const enableLootTransfer = document.getElementById('enableLootTransfer').checked;
-
-          if (enableSharesTransfer || enableLootTransfer) {
-            // Call setTransfersLocked(bool sharesLocked, bool lootLocked)
-            // Note: false = unlocked/transferable, true = locked/non-transferable
-            initCalls.push({
-              target: predictedDao, // Self-call to the DAO
-              value: 0n,
-              data: INTERFACES.setTransfersLocked.encodeFunctionData('setTransfersLocked', [
-                !enableSharesTransfer, // Invert: checkbox=true means unlocked, so sharesLocked=false
-                !enableLootTransfer    // Invert: checkbox=true means unlocked, so lootLocked=false
-              ])
-            });
-          }
-
-          // Add auto-futarchy preset if not "off"
-          const futarchyPreset = document.getElementById('autoFutarchyPreset').value;
-          if (futarchyPreset !== 'off') {
-            let param = 0n;
-            let cap = 0n;
-
-            // Configure based on preset
-            if (futarchyPreset === 'low') {
-              param = 5n;  // 5 bps (0.05%)
-              cap = ethers.parseEther('2');  // 2 LOOT
-            } else if (futarchyPreset === 'standard') {
-              param = 10n;  // 10 bps (0.1%)
-              cap = ethers.parseEther('5');  // 5 LOOT
-            } else if (futarchyPreset === 'high') {
-              param = 50n;  // 50 bps (0.5%)
-              cap = ethers.parseEther('10');  // 10 LOOT
-            }
-
-            // Add setAutoFutarchy call
-            initCalls.push({
-              target: predictedDao, // Self-call to the DAO
-              value: 0n,
-              data: INTERFACES.setAutoFutarchy.encodeFunctionData('setAutoFutarchy', [param, cap])
-            });
-          }
-
-          // Add initial sale configuration if enabled
-          const salePreset = getEl('initialSalePreset').value;
-          if (salePreset === 'internal') {
-            // Internal sale (1:1 token wrapping): uses DAO's built-in setSale function
-            const paymentToken = document.getElementById('internalPaymentToken').value;
-            const tokenType = getEl('saleTokenType').value;
-
-            // Internal sale is always 1:1, unlimited, minting
-            const priceInput = '1';
-            const capInput = '0';
-            const minting = true;
-
-            // Always configure internal 1:1 sale
-            let payToken;
-
-            // Check if custom token is selected
-            if (paymentToken === 'custom') {
-              const customTokenAddress = getEl('customTokenAddress').value.trim();
-              if (!customTokenAddress || !ethers.isAddress(customTokenAddress)) {
-                showStatus('Please enter a valid custom token address for wrapping', true);
-                throw new Error('Invalid custom token address');
-              }
-              payToken = customTokenAddress;
-            } else if (paymentToken === 'dai') {
-              payToken = TOKEN_ADDRESSES.dai;
-            } else {
-              showStatus('Please select a token to wrap (Custom or DAI)', true);
-              throw new Error('No wrap token selected');
-            }
-
-            // Internal sale is always 1:1 (pricePerShare = 1), unlimited (cap = 0), minting = true
-            const pricePerShare = 1n;
-            const cap = 0n;
-            const isLoot = tokenType === 'loot';
-
-            // Add setSale call for 1:1 token wrapping
-            initCalls.push({
-              target: predictedDao, // Self-call to the DAO
-              value: 0n,
-              data: INTERFACES.setSale.encodeFunctionData('setSale', [
-                payToken, pricePerShare, cap, minting, true, isLoot
-              ])
-            });
-          } else if (salePreset === 'daico') {
-            // DAICO sale: uses external DAICO contract
-            // Required steps:
-            // 1. Mint sale supply to DAO itself (shares or loot)
-            // 2. Approve DAICO contract to spend the minted tokens
-            // 3. Call DAICO.setSale() to configure the sale parameters
-
-            const paymentToken = getEl('salePaymentToken').value;
-            const tokenType = getEl('saleTokenType').value;
-            // Parse comma-formatted numbers
-            const tribAmtInput = document.getElementById('daicoTribAmt').value?.replace(/,/g, '');
-            const forAmtInput = document.getElementById('daicoForAmt').value?.replace(/,/g, '');
-            const saleSupplyInput = getEl('daicoSaleSupply').value?.replace(/,/g, '');
-
-            // Validate inputs
-            if (!tribAmtInput || isNaN(parseFloat(tribAmtInput)) || parseFloat(tribAmtInput) <= 0) {
-              showStatus('Please enter a valid payment amount for the sale', true);
-              throw new Error('Invalid payment amount');
-            }
-            if (!forAmtInput || isNaN(parseFloat(forAmtInput)) || parseFloat(forAmtInput) <= 0) {
-              showStatus('Please enter a valid token amount to receive', true);
-              throw new Error('Invalid receive amount');
-            }
-            if (!saleSupplyInput || isNaN(parseFloat(saleSupplyInput)) || parseFloat(saleSupplyInput) <= 0) {
-              showStatus('Please enter a valid total sale supply', true);
-              throw new Error('Invalid sale supply');
-            }
-
-            // Determine payment token address and decimals
-            let tribToken;
-            let tribDecimals = 18;
-
-            if (paymentToken === 'eth') {
-              tribToken = ethers.ZeroAddress;
-              tribDecimals = 18;
-            } else if (paymentToken === 'usdc') {
-              tribToken = TOKEN_ADDRESSES.usdc;
-              tribDecimals = 6;
-            } else if (paymentToken === 'usdt') {
-              tribToken = TOKEN_ADDRESSES.usdt;
-              tribDecimals = 6;
-            } else if (paymentToken === 'dai') {
-              tribToken = TOKEN_ADDRESSES.dai;
-              tribDecimals = 18;
-            } else if (paymentToken === 'wsteth') {
-              tribToken = TOKEN_ADDRESSES.wsteth;
-              tribDecimals = 18;
-            } else if (paymentToken === 'reth') {
-              tribToken = TOKEN_ADDRESSES.reth;
-              tribDecimals = 18;
-            } else if (paymentToken === 'custom') {
-              const customTokenAddress = getEl('customTokenAddress').value.trim();
-              if (!customTokenAddress || !ethers.isAddress(customTokenAddress)) {
-                showStatus('Please enter a valid custom token address', true);
-                throw new Error('Invalid custom token address');
-              }
-              tribToken = customTokenAddress;
-              // Always fetch decimals from the token contract for accuracy
-              try {
-                showStatus('Verifying token decimals...');
-                const tokenContract = new ethers.Contract(customTokenAddress, ['function decimals() view returns (uint8)'], _walletProvider);
-                tribDecimals = await tokenContract.decimals();
-                tribDecimals = Number(tribDecimals);
-              } catch (decErr) {
-                logger.error('Failed to fetch token decimals:', decErr);
-                showStatus('Could not fetch token decimals. Please verify the token address is a valid ERC20.', true);
-                throw new Error('Failed to fetch token decimals');
-              }
-            }
-
-            // Parse amounts with correct decimals
-            // tribAmt: amount of payment token required (in payment token's decimal units)
-            // forAmt: amount of shares/loot received (always 18 decimals)
-            // saleSupply: total tokens to make available (always 18 decimals)
-            const tribAmt = ethers.parseUnits(tribAmtInput, tribDecimals);
-            const forAmt = ethers.parseEther(forAmtInput); // shares/loot are 18 decimals
-            const saleSupply = ethers.parseEther(saleSupplyInput); // shares/loot are 18 decimals
-
-            const isLoot = tokenType === 'loot';
-
-            // GOVERNANCE SAFETY CHECK: Prevent DAICO shares sales that could exceed proposal threshold
-            if (!isLoot && proposalThresholdWei > 0n && saleSupply > proposalThresholdWei) {
-              // DAICO mints new voting shares - supply exceeds threshold
-              const continueAnyway = confirm(
-                `⚠️ GOVERNANCE RISK: DAICO sale supply (${ethers.formatEther(saleSupply)} shares) exceeds proposal threshold (${ethers.formatEther(proposalThresholdWei)} shares).\n\n` +
-                `A single buyer could accumulate enough voting shares to pass proposals unilaterally.\n\n` +
-                `Consider:\n` +
-                `• Selling LOOT (non-voting) instead\n` +
-                `• Reducing supply to ≤ ${ethers.formatEther(proposalThresholdWei)}\n\n` +
-                `Continue anyway?`
-              );
-              if (!continueAnyway) {
-                throw new Error('DAICO sale cancelled due to governance risk');
-              }
-            }
-
-            // Determine which token contract to use (shares or loot)
-            const forToken = isLoot ? predictedLoot : predictedShares;
-
-            // Check LP configuration
-            const enableLP = getEl('daicoSummonEnableLP')?.checked;
-            const lpBpsInput = document.getElementById('daicoSummonLpBps')?.value?.trim();
-            const feeOrHookInput = document.getElementById('daicoSummonFeeOrHook')?.value?.trim() || '30';
-
-            // Check Tap configuration
-            const enableTap = getEl('daicoSummonEnableTap')?.checked;
-            const tapOpsInput = document.getElementById('daicoSummonTapOps')?.value?.trim();
-            const tapRateInput = document.getElementById('daicoSummonTapRate')?.value?.replace(/,/g, '');
-            const tapBudgetInput = document.getElementById('daicoSummonTapBudget')?.value?.replace(/,/g, '');
-
-            // Validate LP if enabled
-            if (enableLP) {
-              if (!lpBpsInput || parseInt(lpBpsInput) < 1 || parseInt(lpBpsInput) > 99) {
-                showStatus('LP percentage must be between 1 and 99', true);
-                throw new Error('Invalid LP percentage');
-              }
-            }
-
-            // Validate Tap if enabled
-            if (enableTap) {
-              const resolvedTapOps = await resolveENS(tapOpsInput || '');
-              if (!resolvedTapOps || !ethers.isAddress(resolvedTapOps)) {
-                showStatus('Please enter a valid Ops address for the tap', true);
-                throw new Error('Invalid tap ops address');
-              }
-              if (!tapRateInput || isNaN(parseFloat(tapRateInput)) || parseFloat(tapRateInput) <= 0) {
-                showStatus('Please enter a valid tap rate', true);
-                throw new Error('Invalid tap rate');
-              }
-              if (!tapBudgetInput || isNaN(parseFloat(tapBudgetInput)) || parseFloat(tapBudgetInput) <= 0) {
-                showStatus('Please enter a valid tap budget', true);
-                throw new Error('Invalid tap budget');
-              }
-            }
-
-            // LP parameters (convert percentage to basis points: 50% = 5000 bps)
-            const lpBps = enableLP ? parseInt(lpBpsInput) * 100 : 0;
-            const maxSlipBps = 100; // 1% default slippage
-            const feeOrHook = parseInt(feeOrHookInput) || 30;
-
-            // Tap parameters (convert rate from per-month to per-second)
-            // Solidity expects smallest units per second; 1 month ≈ 30.44 days ≈ 2629746 seconds
-            const SECONDS_PER_MONTH = 2629746n;
-            let tapOps = ethers.ZeroAddress;
-            let tapRatePerSec = 0n;
-            let tapBudget = 0n;
-
-            if (enableTap) {
-              tapOps = await resolveENS(tapOpsInput);
-              const ratePerMonth = ethers.parseUnits(tapRateInput, tribDecimals);
-              tapRatePerSec = ratePerMonth / SECONDS_PER_MONTH;
-              tapBudget = ethers.parseUnits(tapBudgetInput, tribDecimals);
-
-              // Ensure rate is at least 1 wei/sec if specified
-              if (tapRatePerSec === 0n && ratePerMonth > 0n) {
-                tapRatePerSec = 1n;
-              }
-            }
-
-            // Step 1: Mint sale supply to DAO
-            initCalls.push({
-              target: forToken,
-              value: 0n,
-              data: INTERFACES.mintFromMoloch.encodeFunctionData('mintFromMoloch', [
-                predictedDao,
-                saleSupply
-              ])
-            });
-
-            // Step 2: Approve DAICO contract to spend the minted tokens
-            initCalls.push({
-              target: forToken,
-              value: 0n,
-              data: INTERFACES.erc20Approve.encodeFunctionData('approve', [
-                DAICO_ADDRESS,
-                saleSupply
-              ])
-            });
-
-            // Step 3: If tap is enabled, set allowance for DAICO to spend from DAO treasury
-            if (enableTap && tapBudget > 0n) {
-              initCalls.push({
-                target: predictedDao,
-                value: 0n,
-                data: INTERFACES.setAllowance.encodeFunctionData('setAllowance', [
-                  DAICO_ADDRESS,
-                  tribToken,
-                  tapBudget
-                ])
-              });
-            }
-
-            // Step 4: Call appropriate DAICO function based on LP/Tap configuration
-            // deadline = 0 means no expiration
-            let setSaleCalldata;
-
-            if (enableLP && enableTap) {
-              // setSaleWithLPAndTap(tribTkn, tribAmt, forTkn, forAmt, deadline, lpBps, maxSlipBps, feeOrHook, ops, ratePerSec)
-              setSaleCalldata = INTERFACES.daicoSetSaleWithLPAndTap.encodeFunctionData('setSaleWithLPAndTap', [
-                tribToken, tribAmt, forToken, forAmt, 0, lpBps, maxSlipBps, feeOrHook, tapOps, tapRatePerSec
-              ]);
-            } else if (enableLP) {
-              // setSaleWithLP(tribTkn, tribAmt, forTkn, forAmt, deadline, lpBps, maxSlipBps, feeOrHook)
-              setSaleCalldata = INTERFACES.daicoSetSaleWithLP.encodeFunctionData('setSaleWithLP', [
-                tribToken, tribAmt, forToken, forAmt, 0, lpBps, maxSlipBps, feeOrHook
-              ]);
-            } else if (enableTap) {
-              // setSaleWithTap(tribTkn, tribAmt, forTkn, forAmt, deadline, ops, ratePerSec)
-              setSaleCalldata = INTERFACES.daicoSetSaleWithTap.encodeFunctionData('setSaleWithTap', [
-                tribToken, tribAmt, forToken, forAmt, 0, tapOps, tapRatePerSec
-              ]);
-            } else {
-              // setSale(tribTkn, tribAmt, forTkn, forAmt, deadline)
-              setSaleCalldata = INTERFACES.daicoSetSale.encodeFunctionData('setSale', [
-                tribToken, tribAmt, forToken, forAmt, 0
-              ]);
-            }
-
-            initCalls.push({
-              target: DAICO_ADDRESS,
-              value: 0n,
-              data: setSaleCalldata
-            });
-          }
-
-          showStatus('Preparing transaction...');
-
-          // Get initial ETH deposit if specified
-          const initialEthDepositInput = document.getElementById('initialEthDeposit').value;
-          const initialEthDeposit = initialEthDepositInput && parseFloat(initialEthDepositInput) > 0
-            ? ethers.parseEther(initialEthDepositInput)
-            : 0n;
-
-          // Call summon
-          await ensureCorrectChain();
-          showStatus('Please confirm the transaction in your wallet...');
-
-          // For WalletConnect, skip local gas estimation (use generous limit, wallet will refine)
-          const txOptions = { value: initialEthDeposit };
+          const txOptions = {};
           if (_isWalletConnect) {
             txOptions.gasLimit = 2_000_000n;
           }
 
-          const tx = await summoner.summon(
-            daoName,
-            daoSymbol,
-            daoURI,
-            quorumBps,
-            ragequittable,
-            '0x000000000011C799980827F52d3137b4abD6E654', // default renderer
-            salt,
-            initHolders,
-            initShares,
-            initCalls,
-            txOptions
-          );
+          let tx;
+
+          if (selectedPreset === 'founder') {
+            // Founder: no members needed, msg.sender gets 10M shares
+            await ensureCorrectChain();
+            showStatus('Please confirm the transaction in your wallet...');
+            tx = await safeSummoner.summonFounder(daoName, daoSymbol, daoURI, salt, txOptions);
+          } else {
+            // Standard or Fast: collect members
+            const memberRows = document.querySelectorAll('.member-row');
+            const initHolders = [];
+            const initShares = [];
+
+            for (const row of memberRows) {
+              const addressInput = row.querySelector('.member-address').value.trim();
+              const sharesInput = row.querySelector('.member-shares').value;
+
+              if (addressInput && sharesInput) {
+                const address = await resolveENS(addressInput);
+                if (!ethers.isAddress(address)) {
+                  throw new Error(`Invalid address: ${addressInput}`);
+                }
+                if (initHolders.includes(address)) {
+                  throw new Error(`Duplicate member address: ${addressInput}`);
+                }
+                initHolders.push(address);
+                initShares.push(ethers.parseEther(sharesInput));
+              }
+            }
+
+            if (initHolders.length === 0) {
+              throw new Error('At least one member is required');
+            }
+
+            const lockShares = document.getElementById('lockShares')?.checked || false;
+
+            await ensureCorrectChain();
+            showStatus('Please confirm the transaction in your wallet...');
+
+            if (selectedPreset === 'standard') {
+              tx = await safeSummoner.summonStandard(daoName, daoSymbol, daoURI, salt, initHolders, initShares, lockShares, txOptions);
+            } else {
+              tx = await safeSummoner.summonFast(daoName, daoSymbol, daoURI, salt, initHolders, initShares, lockShares, txOptions);
+            }
+          }
 
           showStatus(`Transaction submitted. <a href="${getNetwork().explorer}/tx/${tx.hash}" target="_blank" rel="noopener" style="color: var(--fg); text-decoration: underline;">View on Explorer</a>`);
 
           const receipt = await tx.wait();
 
-          // Find DAO address from events - ethers v6 syntax
+          // Find DAO address from NewDAO event (emitted by underlying Summoner)
           const event = receipt.logs
             .map(log => {
               try {
@@ -18508,9 +17936,9 @@ body.modal-open { overflow: hidden; }
 
           const daoAddress = event?.args?.dao;
 
-          showStatus(`✨ DAO summoned successfully at: <a href="${getNetwork().explorer}/address/${daoAddress}" target="_blank" rel="noopener" style="color: var(--fg); text-decoration: underline;">${daoAddress}</a> | <a href="${getNetwork().explorer}/tx/${tx.hash}" target="_blank" rel="noopener" style="color: var(--fg); text-decoration: underline;">View transaction</a>`);
+          showStatus(`DAO summoned at: <a href="${getNetwork().explorer}/address/${daoAddress}" target="_blank" rel="noopener" style="color: var(--fg); text-decoration: underline;">${daoAddress}</a> | <a href="${getNetwork().explorer}/tx/${tx.hash}" target="_blank" rel="noopener" style="color: var(--fg); text-decoration: underline;">tx</a>`);
 
-          // Refresh DAO list to include newly summoned DAO
+          // Refresh DAO list
           if (_connectedAddress) {
             await fetchUserDAOs();
             if (userDAOs.length > 0) renderDAOGallery();
@@ -18518,33 +17946,16 @@ body.modal-open { overflow: hidden; }
 
           // Reset form
           document.getElementById('summonForm').reset();
+          selectedPreset = null;
+          _daoImageFile = null;
+          _daoImageCID = null;
+          const uploadBtn = document.querySelector('.dao-upload-btn');
+          if (uploadBtn) { uploadBtn.innerHTML = '<span class="dao-upload-label">Logo</span>'; }
+          document.querySelectorAll('.preset-card').forEach(c => c.classList.remove('selected'));
+          document.getElementById('presetFields').classList.remove('show');
           document.getElementById('foundingMembersList').innerHTML = '';
           const memberRow = createMemberRow(await _signer.getAddress(), '1', true);
           document.getElementById('foundingMembersList').appendChild(memberRow);
-
-          // Reset time units to defaults
-          document.getElementById('proposalTTLUnit').value = '86400';
-          document.getElementById('timelockDelayUnit').value = '86400';
-
-          // Reset auto-futarchy preset to default
-          document.getElementById('autoFutarchyPreset').value = 'off';
-
-          // Reset and update loot inputs
-          getEl('distributeLoot').checked = false;
-          document.getElementById('lootDistribution').style.display = 'none';
-          updateLootInputs();
-
-          // Reset DAICO sale config
-          getEl('initialSalePreset').value = 'off';
-          toggleSaleConfig();
-
-          // Reset DAICO LP/Tap fields
-          const lpCheckbox = getEl('daicoSummonEnableLP');
-          const tapCheckbox = getEl('daicoSummonEnableTap');
-          if (lpCheckbox) lpCheckbox.checked = false;
-          if (tapCheckbox) tapCheckbox.checked = false;
-          toggleDaicoSummonLPFields();
-          toggleDaicoSummonTapFields();
 
         } catch (error) {
           logger.error(error);
@@ -18552,7 +17963,6 @@ body.modal-open { overflow: hidden; }
           if (isUserRejection(error)) {
             showStatus('Summoning cancelled', false);
           } else {
-            // Handle common wallet errors with user-friendly messages
             let errorMessage = 'Summoning failed';
 
             if (error.code === 'UNKNOWN_ERROR' && error.message?.includes('eth_blockNumber')) {
@@ -18587,8 +17997,18 @@ body.modal-open { overflow: hidden; }
         // Initialize DOM cache for performance
         DOMCache.init();
 
-        // Start hero fire animation
+        // Start hero fire animation, then crossfade to banner
         heroFire = initFireCanvas(document.getElementById('fireCanvas'));
+        const fireCanvas = document.getElementById('fireCanvas');
+        const heroBanner = document.getElementById('heroBanner');
+        // After brief fire flash, fade canvas out and banner in
+        setTimeout(() => {
+          if (document.getElementById('fireHero')?.classList.contains('hide')) return;
+          if (fireCanvas) fireCanvas.classList.add('fade');
+          if (heroBanner) heroBanner.classList.add('show', 'pulse');
+          // Stop fire after fade completes
+          setTimeout(() => { if (heroFire) heroFire.stop(); }, 800);
+        }, 800);
 
         // Enable wheel scrolling on chatroom/proposals/members without requiring click focus
         ['chatroomMessages', 'proposalsList', 'membersList'].forEach(id => {
@@ -18688,7 +18108,6 @@ body.modal-open { overflow: hidden; }
               if (foundingMembersList && foundingMembersList.children.length === 0 && _connectedAddress) {
                 const memberRow = createMemberRow(_connectedAddress, '1', true);
                 foundingMembersList.appendChild(memberRow);
-                updateLootInputs();
               }
             } catch(e) { logger.error('Post-connect error:', e); }
           }],

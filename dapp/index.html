@@ -12014,33 +12014,39 @@ function coinGetResolved(inputId) {
   return null;
 }
 
-function onCoinAddressInput(inputId, resolvedId) {
+function onCoinAddressInput(inputId, resolvedId, onResolved) {
   const r = _coinResolver(inputId);
   clearTimeout(r.debounce);
   const v = ($(inputId)?.value || '').trim();
   const el = $(resolvedId);
   r.resolved = null;
-  if (!v) { el.style.display = 'none'; return; }
+  if (!v) {
+    el.style.display = 'none';
+    if (typeof onResolved === 'function') onResolved();
+    return;
+  }
   if (ethers.isAddress(v)) {
     el.style.display = 'block';
     el.style.color = 'var(--fg-muted)';
     el.textContent = ethers.getAddress(v);
     r.resolved = { input: v, address: ethers.getAddress(v) };
+    if (typeof onResolved === 'function') onResolved();
     return;
   }
   if (v.endsWith('.wei') || v.endsWith('.eth')) {
     el.style.display = 'block';
     el.style.color = 'var(--fg-muted)';
     el.textContent = 'Resolving ' + v + '...';
-    r.debounce = setTimeout(() => coinResolveName(inputId, resolvedId, v), 350);
+    r.debounce = setTimeout(() => coinResolveName(inputId, resolvedId, v, onResolved), 350);
   } else {
     el.style.display = 'block';
     el.style.color = 'var(--remove-fg, #c0392b)';
     el.textContent = 'Enter 0x address, name.wei, or name.eth';
+    if (typeof onResolved === 'function') onResolved();
   }
 }
 
-async function coinResolveName(inputId, resolvedId, name) {
+async function coinResolveName(inputId, resolvedId, name, onResolved) {
   const r = _coinResolver(inputId);
   const seq = ++r.seq;
   const el = $(resolvedId);
@@ -12064,10 +12070,12 @@ async function coinResolveName(inputId, resolvedId, name) {
       r.resolved = { input: name, address: resolved };
       el.style.color = 'var(--fg-muted)';
       el.textContent = resolved;
+      if (typeof onResolved === 'function') onResolved();
     } else {
       r.resolved = null;
       el.style.color = 'var(--remove-fg, #c0392b)';
       el.textContent = 'Name not found';
+      if (typeof onResolved === 'function') onResolved();
     }
   } catch (e) {
     if (seq !== r.seq) return;

@@ -1154,8 +1154,9 @@ body.modal-open { overflow: hidden; }
     <div id="ppZapEstimate" style="display:none;font-size:12px;color:var(--fg-muted);margin-top:4px">&#9889; Est. deposit: <span id="ppZapEstAmt">--</span> wstETH</div>
   </div>
 
-  <div id="ppFeeInfo" style="display:none;font-size:12px;color:var(--fg-muted);margin-bottom:16px">
-    Vetting fee: <span id="ppFeeBps">--</span> bps &middot; Min deposit: <span id="ppMinDeposit">--</span> <span id="ppMinUnit">ETH</span>
+  <div id="ppFeeInfo" class="quote-info" style="display:none;margin-top:0;margin-bottom:16px">
+    <div class="quote-row"><span>Vetting Fee</span><span><span id="ppFeeBps">--</span> bps</span></div>
+    <div class="quote-row"><span>Min Deposit</span><span><span id="ppMinDeposit">--</span> <span id="ppMinUnit">ETH</span></span></div>
   </div>
   <div id="ppDepositRoundingHint" style="display:none;font-size:11px;color:var(--fg-muted);margin-top:-8px;margin-bottom:6px">Rounded amounts can improve privacy on later withdrawals.</div>
   <div id="ppDepositSuggestWrap" style="display:none;font-size:11px;color:var(--fg-muted);margin-bottom:12px">
@@ -1236,32 +1237,23 @@ body.modal-open { overflow: hidden; }
       </label>
     </div>
 
-    <div id="ppwRelayFeePanel" style="display:none;margin-bottom:16px;padding:8px;border:1px solid var(--border-muted);background:var(--surface);font-size:11px">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-        <span style="color:var(--fg-muted)">Relay Fee</span>
-        <span id="ppwRelayFeeBps">--</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-        <span style="color:var(--fg-muted)">Estimated Fee</span>
-        <span id="ppwRelayFeeAmt">--</span>
-      </div>
-      <div style="display:flex;justify-content:space-between">
-        <span style="color:var(--fg-muted)">Quote Expires</span>
-        <span id="ppwRelayExpiry">--</span>
-      </div>
+    <div id="ppwRelayFeePanel" class="quote-info" style="display:none;margin-top:0;margin-bottom:16px">
+      <div class="quote-row"><span>Relay Fee</span><span id="ppwRelayFeeBps">--</span></div>
+      <div class="quote-row"><span>Estimated Fee</span><span id="ppwRelayFeeAmt">--</span></div>
+      <div class="quote-row"><span>Quote Expires</span><span id="ppwRelayExpiry">--</span></div>
     </div>
 
     <div id="ppwVerify" style="display:none;margin-bottom:16px;font-size:11px;padding:8px;border:1px solid var(--border-muted);background:var(--surface);overflow-x:auto;word-break:break-word">
       <div id="ppwVerifyStatus"></div>
     </div>
 
-    <div id="ppwPreview" style="display:none;margin-bottom:16px;padding:8px;border:1px solid var(--border-muted);background:var(--surface);font-size:11px">
-      <div style="font-size:12px;font-weight:600;margin-bottom:6px">Withdrawal Preview</div>
+    <div id="ppwPreview" class="quote-info" style="display:none;margin-top:0;margin-bottom:16px">
+      <div style="font-weight:600;margin-bottom:4px">Withdrawal Preview</div>
       <div id="ppwPreviewContent"></div>
     </div>
 
-    <div id="ppwChangeWarning" style="display:none;margin-bottom:16px;padding:8px;border:1px solid orange;background:var(--surface);font-size:11px;color:orange;line-height:1.4"></div>
-    <div id="ppwRelayMinWarning" style="display:none;margin-bottom:16px;padding:8px;border:1px solid #f39c12;background:var(--surface);font-size:11px;color:#f39c12;line-height:1.4"></div>
+    <div id="ppwChangeWarning" style="display:none;margin-bottom:16px;padding:8px;border:1px solid #e67e22;background:var(--surface);font-size:11px;color:#e67e22;line-height:1.4"></div>
+    <div id="ppwRelayMinWarning" style="display:none;margin-bottom:16px;padding:8px;border:1px solid #e67e22;background:var(--surface);font-size:11px;color:#e67e22;line-height:1.4"></div>
 
     <button id="ppwWithdrawBtn" class="swap-btn" disabled onclick="ppwWithdraw()">Withdraw</button>
 
@@ -10687,13 +10679,12 @@ function ppwScheduleAnonymityHint(withdrawnValue, asset) {
 
 function ppwUpdateRecipientHint() {
   const inputEl = $('ppwRecipient');
-  if (!inputEl) return;
   const labelEl = $('ppwRecipientLabel');
   const relayWrap = $('ppwRelayRecipientWrap');
   const directNote = $('ppwDirectRecipientNote');
   const directWalletLine = $('ppwDirectWalletLine');
   const resolvedEl = $('ppwRecipientResolved');
-
+  if (!inputEl) return;
   const isDirect = _ppwMode === 'direct';
   inputEl.readOnly = false;
   inputEl.style.opacity = '';
@@ -10726,8 +10717,6 @@ function ppwGetRecipientAddress() {
 }
 
 function ppwOnRecipientInput() {
-  const inputEl = $('ppwRecipient');
-  if (!inputEl) return;
   if (_ppwMode === 'direct') {
     const resolvedEl = $('ppwRecipientResolved');
     if (resolvedEl) resolvedEl.style.display = 'none';
@@ -11283,6 +11272,7 @@ function ppwSelectAccount(index) {
     label: r.label != null ? BigInt(r.label) : null,
     commitment: r.commitment ?? null,
   };
+
   ppwResetDraftState();
   // Start each withdrawal flow from the relay-first default.
   ppwSetMode('relay');
@@ -11356,8 +11346,8 @@ async function ppwWithdraw() {
     }
 
     const customRecipient = $('ppwRecipient').value.trim();
-    const isRelayMode = _ppwMode === 'relay';
     const resolvedRecipient = ppwGetRecipientAddress();
+    const isRelayMode = _ppwMode === 'relay';
 
     if (isRelayMode) {
       if (!customRecipient || !resolvedRecipient) {
@@ -12114,18 +12104,18 @@ async function coinResolveName(inputId, resolvedId, name, onResolved) {
       r.resolved = { input: name, address: resolved };
       el.style.color = 'var(--fg-muted)';
       el.textContent = resolved;
-      if (typeof onResolved === 'function') onResolved();
     } else {
       r.resolved = null;
       el.style.color = 'var(--remove-fg, #c0392b)';
       el.textContent = 'Name not found';
-      if (typeof onResolved === 'function') onResolved();
     }
+    if (typeof onResolved === 'function') onResolved();
   } catch (e) {
     if (seq !== r.seq) return;
     r.resolved = null;
     el.style.color = 'var(--remove-fg, #c0392b)';
     el.textContent = 'Failed to resolve ' + name;
+    if (typeof onResolved === 'function') onResolved();
   }
 }
 

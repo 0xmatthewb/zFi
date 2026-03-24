@@ -1275,7 +1275,19 @@ body.modal-open { overflow: hidden; }
 <div id="coinTab" style="display:none">
 <div class="swap-card">
   <h2 style="font-size:14px;font-weight:400;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:14px">Launch a Coin</h2>
+  <div style="padding:40px 0;text-align:center">
+    <div style="font-size:13px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--fg-muted)">Pending Upgrade</div>
+    <div style="font-size:12px;color:var(--fg-dim);margin-top:8px">New coin launches are temporarily paused.</div>
+  </div>
+</div>
+<div style="margin-top:14px;text-align:center">
+  <a href="./coin/" style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fg-dim);text-decoration:none">Browse coins &rarr;</a>
+</div>
+</div><!-- end coinTab -->
 
+<div id="_coinFormPaused" style="display:none">
+<!-- original coin creation form - restore from git history -->
+<div class="swap-card">
   <div class="coin-tpl-toggle" style="margin-bottom:4px">
     <button class="coin-tpl-btn active" onclick="coinSetLaunchType('simple')">ez</button>
     <button class="coin-tpl-btn" onclick="coinSetLaunchType('advanced')">Fund</button>
@@ -1577,7 +1589,7 @@ body.modal-open { overflow: hidden; }
 <div style="margin-top:14px;text-align:center">
   <a href="./coin/" style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fg-dim);text-decoration:none">Browse coins &rarr;</a>
 </div>
-</div><!-- end coinTab -->
+</div><!-- end _coinFormPaused -->
 
 <div id="sendTab" style="display:none">
 <div class="swap-card">

@@ -1656,8 +1656,9 @@ async function renderGallery() {
       const isCollector = md && md.type === 'fw-collector';
 
       // Determine if coin is inactive (no trades in last 3 days)
+      // Collector DAOs (e.g. FWC) stay visible regardless of swap activity
       let isInactive = false;
-      if (hasPool && !isSpam) {
+      if (hasPool && !isSpam && !isCollector) {
         const tokenKey = d.meta.sharesToken.toLowerCase();
         const updatedAtMs = activityMap[tokenKey];
         // Only mark inactive if we have a real updatedAt that's older than 3 days

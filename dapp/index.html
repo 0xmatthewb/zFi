@@ -7788,12 +7788,13 @@ async function executeSwap() {
       if (swapCalls.length === 0) throw new Error("PP swap routing failed — no swap calls generated");
       let depositCalldata, executeCall, sweepCalls;
       if (ppIsERC20) {
-        // Preflight check — router must have token allowance to PP entrypoint
-        const rpcPF = await quoteRPC.call(r => r);
-        const tokenPF = new ethers.Contract(ppTokenAddr, ['function allowance(address,address) view returns (uint256)'], rpcPF);
-        const routerToEPAllow = await tokenPF.allowance(ZROUTER_ADDRESS, PP_ENTRYPOINT);
+        // Preflight check — router must have token allowance to the Privacy Pools entrypoint
+        const routerToEPAllow = await ppReadWithRpc(async (rpc) => {
+          const tokenPF = new ethers.Contract(ppTokenAddr, ['function allowance(address,address) view returns (uint256)'], rpc);
+          return await tokenPF.allowance(ZROUTER_ADDRESS, PP_ENTRYPOINT);
+        });
         if (routerToEPAllow < depositAmount) {
-          showStatus(`Router lacks ${ppAsset} allowance to Privacy Pool entrypoint. Contact the zFi team to configure router approval.`, 'error');
+          showStatus(`Router lacks ${ppAsset} allowance to the Privacy Pools entrypoint. Contact the zFi team to configure router approval.`, 'error');
           return;
         }
       }
@@ -8912,12 +8913,13 @@ function ppDeriveDepositKeys(masterNullifier, masterSecret, scope, index) {
 }
 
 async function ppFindUnusedDepositIndex(masterNullifier, masterSecret, scope, startIndex) {
-  const rpc = await quoteRPC.call(r => r);
-  const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
   let idx = startIndex;
   for (let i = 0; i < 50; i++) {
     const keys = ppDeriveDepositKeys(masterNullifier, masterSecret, scope, idx);
-    const used = await ep.usedPrecommitments(keys.precommitment);
+    const used = await ppReadWithRpc(async (rpc) => {
+      const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
+      return await ep.usedPrecommitments(keys.precommitment);
+    });
     if (!used) return idx;
     idx++;
   }
@@ -9095,11 +9097,6 @@ async function ppResolvePendingDepositReservations(address, scope, recoveredInde
   const reservations = ppReadPendingDepositReservations(address, scope, recoveredIndex);
   if (!reservations.length) return { nextIndex: recoveredIndex, pendingIndex: null };
 
-  let rpc = null;
-  try {
-    rpc = await quoteRPC.call(r => r);
-  } catch {}
-
   const now = Date.now();
   const updated = [];
   for (const reservation of reservations) {
@@ -9107,14 +9104,14 @@ async function ppResolvePendingDepositReservations(address, scope, recoveredInde
 
     if (!reservation.txHash) {
       if ((now - reservation.createdAt) > PP_PENDING_DEPOSIT_UNSIGNED_TTL_MS) continue;
-    } else if (rpc) {
+    } else {
       try {
-        const receipt = await rpc.getTransactionReceipt(reservation.txHash);
+        const receipt = await ppReadWithRpc(async (rpc) => await rpc.getTransactionReceipt(reservation.txHash));
         if (receipt) {
           if (receipt.status === 1) status = 'confirmed';
           else continue;
         } else if (status !== 'confirmed') {
-          const tx = await rpc.getTransaction(reservation.txHash).catch(() => null);
+          const tx = await ppReadWithRpc(async (rpc) => await rpc.getTransaction(reservation.txHash)).catch(() => null);
           if (!tx && (now - reservation.createdAt) > PP_PENDING_DEPOSIT_UNKNOWN_TTL_MS) continue;
         }
       } catch {}
@@ -9389,8 +9386,7 @@ function ppBuildRagequitEventsMap(ragequitLogs) {
 }
 
 async function ppFetchPoolEventLogs(asset, includeLeaves = false) {
-  const rpc = await quoteRPC.call(r => r);
-  const latestBlock = await rpc.getBlockNumber();
+  const latestBlock = await ppReadWithRpc(async (rpc) => await rpc.getBlockNumber());
   const poolAddress = ppGetPoolAddress(asset);
   const deployBlock = PP_DEPLOYMENT_BLOCKS[asset] || PP_DEPLOYMENT_BLOCKS.ETH;
   const cached = _ppwEventCache[asset];
@@ -9418,9 +9414,9 @@ async function ppFetchPoolEventLogs(asset, includeLeaves = false) {
         const wFilter = { address: poolAddress, topics: [PP_POOL_EVENTS.getEvent('Withdrawn').topicHash], fromBlock: baseFromBlock, toBlock: latestBlock };
         const rFilter = { address: poolAddress, topics: [PP_POOL_EVENTS.getEvent('Ragequit').topicHash], fromBlock: baseFromBlock, toBlock: latestBlock };
         return [
-          ppGetLogsChunked(rpc, dFilter, baseFromBlock, latestBlock),
-          ppGetLogsChunked(rpc, wFilter, baseFromBlock, latestBlock),
-          ppGetLogsChunked(rpc, rFilter, baseFromBlock, latestBlock),
+          ppGetLogsChunked(null, dFilter, baseFromBlock, latestBlock),
+          ppGetLogsChunked(null, wFilter, baseFromBlock, latestBlock),
+          ppGetLogsChunked(null, rFilter, baseFromBlock, latestBlock),
         ];
       })()
     : [Promise.resolve([]), Promise.resolve([]), Promise.resolve([])];
@@ -9428,7 +9424,7 @@ async function ppFetchPoolEventLogs(asset, includeLeaves = false) {
   const leafPromise = needsLeafFetch
     ? (() => {
         const lFilter = { address: poolAddress, topics: [PP_POOL_EVENTS.getEvent('LeafInserted').topicHash], fromBlock: leafFromBlock, toBlock: latestBlock };
-        return ppGetLogsChunked(rpc, lFilter, leafFromBlock, latestBlock);
+        return ppGetLogsChunked(null, lFilter, leafFromBlock, latestBlock);
       })()
     : Promise.resolve([]);
 
@@ -9602,11 +9598,18 @@ function ppIsTransientRpcError(err) {
   );
 }
 
+async function ppReadWithRpc(work) {
+  return await quoteRPC.call(async (rpc) => await work(rpc));
+}
+
 async function ppProviderGetLogsWithRetry(provider, request, attempts = 3) {
   let lastErr;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      return await provider.getLogs(request);
+      if (provider) {
+        return await provider.getLogs(request);
+      }
+      return await ppReadWithRpc(async (rpc) => rpc.getLogs(request));
     } catch (err) {
       lastErr = err;
       if (attempt >= attempts - 1 || !ppIsTransientRpcError(err)) throw err;
@@ -9616,25 +9619,31 @@ async function ppProviderGetLogsWithRetry(provider, request, attempts = 3) {
   throw lastErr;
 }
 
+function ppIsRangeLimitedLogsError(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    msg.includes('range') ||
+    msg.includes('limit') ||
+    msg.includes('10000') ||
+    msg.includes('too many') ||
+    msg.includes('max block range') ||
+    msg.includes('query exceeds') ||
+    msg.includes('exceeded max allowed range')
+  );
+}
+
 async function ppGetLogsChunked(provider, filter, fromBlock, toBlock, chunkSize = 1250000) {
   try {
     return await ppProviderGetLogsWithRetry(provider, { ...filter, fromBlock, toBlock });
   } catch (e) {
-    const msg = (e.message || '').toLowerCase();
-    if (!msg.includes('range') && !msg.includes('limit') && !msg.includes('10000') && !msg.includes('too many')) throw e;
+    if (!ppIsRangeLimitedLogsError(e)) throw e;
+    if (fromBlock >= toBlock) throw e;
     const logs = [];
-    for (let start = fromBlock; start <= toBlock; start += chunkSize) {
-      const end = Math.min(start + chunkSize - 1, toBlock);
-      try {
-        logs.push(...await ppProviderGetLogsWithRetry(provider, { ...filter, fromBlock: start, toBlock: end }));
-      } catch (chunkErr) {
-        // Retry with smaller sub-chunks
-        const sub = Math.floor(chunkSize / 4) || 1;
-        for (let s2 = start; s2 <= end; s2 += sub) {
-          const e2 = Math.min(s2 + sub - 1, end);
-          logs.push(...await ppProviderGetLogsWithRetry(provider, { ...filter, fromBlock: s2, toBlock: e2 }));
-        }
-      }
+    const span = toBlock - fromBlock + 1;
+    const nextChunkSize = Math.max(1, Math.floor(Math.min(chunkSize, span - 1) / 4));
+    for (let start = fromBlock; start <= toBlock; start += nextChunkSize) {
+      const end = Math.min(start + nextChunkSize - 1, toBlock);
+      logs.push(...await ppGetLogsChunked(provider, filter, start, end, nextChunkSize));
     }
     return logs;
   }
@@ -10408,12 +10417,19 @@ async function loadPPConfig() {
       ppApplyConfigUI();
       return;
     }
-    const rpc = await quoteRPC.call(r => r);
-    const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
     const [ethResult, boldResult, wstethResult] = await Promise.allSettled([
-      ep.assetConfig(PP_ETH_ASSET),
-      ep.assetConfig(BOLD_ADDRESS),
-      ep.assetConfig(WSTETH_ADDRESS)
+      ppReadWithRpc(async (rpc) => {
+        const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
+        return await ep.assetConfig(PP_ETH_ASSET);
+      }),
+      ppReadWithRpc(async (rpc) => {
+        const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
+        return await ep.assetConfig(BOLD_ADDRESS);
+      }),
+      ppReadWithRpc(async (rpc) => {
+        const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
+        return await ep.assetConfig(WSTETH_ADDRESS);
+      })
     ]);
     if (ethResult.status === 'fulfilled') { const c = ethResult.value; _ppConfig = { pool: c.pool, minimumDepositAmount: c.minimumDepositAmount, vettingFeeBPS: c.vettingFeeBPS, maxRelayFeeBPS: c.maxRelayFeeBPS }; }
     else console.warn("Failed to load ETH PP config:", ethResult.reason);
@@ -10591,8 +10607,7 @@ async function ppDeposit() {
       if (!_signer) { connectWallet(); return; }
       // Balance pre-check (ETH for zap)
       try {
-        const rpcBal = await quoteRPC.call(r => r);
-        const bal = await rpcBal.getBalance(_connectedAddress);
+        const bal = await ppReadWithRpc(async (rpc) => await rpc.getBalance(_connectedAddress));
         if (bal < amount) { showStatus('Insufficient ETH — need ' + fmt(ethers.formatEther(amount)) + ' ETH', 'error'); return; }
       } catch (_) {}
       setText(btn, 'Quoting ETH \u2192 wstETH...');
@@ -10639,9 +10654,10 @@ async function ppDeposit() {
       }
 
       // Preflight: router must have wstETH allowance to PP entrypoint
-      const rpcPF = await quoteRPC.call(r => r);
-      const wstPF = new ethers.Contract(WSTETH_ADDRESS, ['function allowance(address,address) view returns (uint256)'], rpcPF);
-      const routerToEPAllow = await wstPF.allowance(ZROUTER_ADDRESS, PP_ENTRYPOINT);
+      const routerToEPAllow = await ppReadWithRpc(async (rpc) => {
+        const wstPF = new ethers.Contract(WSTETH_ADDRESS, ['function allowance(address,address) view returns (uint256)'], rpc);
+        return await wstPF.allowance(ZROUTER_ADDRESS, PP_ENTRYPOINT);
+      });
       if (routerToEPAllow < depositAmount) {
         showStatus('Router lacks wstETH allowance to Privacy Pool entrypoint. Contact the zFi team to configure router approval.', 'error');
         return;
@@ -10722,15 +10738,14 @@ async function ppDeposit() {
 
     // Balance pre-check
     try {
-      const rpcBal = await quoteRPC.call(r => r);
       if (isERC20PP) {
         const tokenAddr = isWSTETH ? WSTETH_ADDRESS : BOLD_ADDRESS;
         const balIface = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
-        const balRes = await rpcBal.call({ to: tokenAddr, data: balIface.encodeFunctionData('balanceOf', [_connectedAddress]) });
+        const balRes = await ppReadWithRpc(async (rpc) => await rpc.call({ to: tokenAddr, data: balIface.encodeFunctionData('balanceOf', [_connectedAddress]) }));
         const bal = balIface.decodeFunctionResult('balanceOf', balRes)[0];
         if (bal < amount) { showStatus('Insufficient ' + _ppSelectedAsset + ' balance', 'error'); return; }
       } else {
-        const bal = await rpcBal.getBalance(_connectedAddress);
+        const bal = await ppReadWithRpc(async (rpc) => await rpc.getBalance(_connectedAddress));
         if (bal < amount) { showStatus('Insufficient ETH — need ' + fmt(ethers.formatEther(amount)) + ' ETH', 'error'); return; }
       }
     } catch (_) {}
@@ -10755,9 +10770,10 @@ async function ppDeposit() {
       let approved = false;
 
       // Check existing router allowance
-      const rpc = await quoteRPC.call(r => r);
-      const tokenRead = new ethers.Contract(tokenAddr, ['function allowance(address,address) view returns (uint256)'], rpc);
-      const routerAllowance = await tokenRead.allowance(_connectedAddress, ZROUTER_ADDRESS);
+      const routerAllowance = await ppReadWithRpc(async (rpc) => {
+        const tokenRead = new ethers.Contract(tokenAddr, ['function allowance(address,address) view returns (uint256)'], rpc);
+        return await tokenRead.allowance(_connectedAddress, ZROUTER_ADDRESS);
+      });
       if (routerAllowance >= amount) approved = true;
 
       // Try EIP-2612 permit (gasless signature, single tx)
@@ -10808,9 +10824,10 @@ async function ppDeposit() {
       }
 
       // Preflight check — router must have token allowance to PP entrypoint
-      const rpcPreflight = await quoteRPC.call(r => r);
-      const tokenPreflight = new ethers.Contract(tokenAddr, ['function allowance(address,address) view returns (uint256)'], rpcPreflight);
-      const routerToEPAllowance = await tokenPreflight.allowance(ZROUTER_ADDRESS, PP_ENTRYPOINT);
+      const routerToEPAllowance = await ppReadWithRpc(async (rpc) => {
+        const tokenPreflight = new ethers.Contract(tokenAddr, ['function allowance(address,address) view returns (uint256)'], rpc);
+        return await tokenPreflight.allowance(ZROUTER_ADDRESS, PP_ENTRYPOINT);
+      });
       if (routerToEPAllowance < amount) {
         showStatus(`Router lacks ${tokenLabel} allowance to Privacy Pool entrypoint. Contact the zFi team to configure router approval.`, 'error');
         return;
@@ -11170,9 +11187,10 @@ async function ppEnsureAssetConfig(asset) {
   const cached = ppGetAssetConfig(asset);
   if (cached && cached.maxRelayFeeBPS != null) return cached;
   try {
-    const rpc = await quoteRPC.call(r => r);
-    const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
-    const c = await ep.assetConfig(ppwRelayAssetAddress(asset));
+    const c = await ppReadWithRpc(async (rpc) => {
+      const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
+      return await ep.assetConfig(ppwRelayAssetAddress(asset));
+    });
     const cfg = {
       pool: c.pool,
       minimumDepositAmount: c.minimumDepositAmount,
@@ -12022,10 +12040,11 @@ async function ppwWithdraw() {
 
     // Pre-check: is this deposit's nullifier already spent on-chain?
     try {
-      const rpc = await quoteRPC.call(r => r);
-      const pool = new ethers.Contract(poolAddress, PP_POOL_ABI, rpc);
       const nullHash = poseidon1([_ppwNote.nullifier]);
-      const isSpent = await pool.nullifierHashes(nullHash);
+      const isSpent = await ppReadWithRpc(async (rpc) => {
+        const pool = new ethers.Contract(poolAddress, PP_POOL_ABI, rpc);
+        return await pool.nullifierHashes(nullHash);
+      });
       if (isSpent) {
         showStatus('This deposit has already been withdrawn (nullifier spent onchain).', 'error');
         log('<b>Already spent.</b> Nullifier hash 0x' + nullHash.toString(16).slice(0, 16) + '... is marked as used.');
@@ -12100,9 +12119,10 @@ async function ppwWithdraw() {
 
     // M-5: Validate reconstructed state root against on-chain pool.currentRoot()
     try {
-      const rpc = await quoteRPC.call(r => r);
-      const poolRO = new ethers.Contract(poolAddress, PP_POOL_ABI, rpc);
-      const onChainStateRoot = await poolRO.currentRoot();
+      const onChainStateRoot = await ppReadWithRpc(async (rpc) => {
+        const poolRO = new ethers.Contract(poolAddress, PP_POOL_ABI, rpc);
+        return await poolRO.currentRoot();
+      });
       if (stateTree.root !== onChainStateRoot) {
         // R-4: Protocol accepts a window of recent roots, not only currentRoot().
         // Warn but allow proceed — the on-chain verifier will reject if truly invalid.
@@ -12132,9 +12152,10 @@ async function ppwWithdraw() {
     // H-3: Verify ASP root matches on-chain latestRoot before proving
     log('Verifying ASP root against onchain latestRoot...');
     try {
-      const rpc = await quoteRPC.call(r => r);
-      const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
-      const onChainASPRoot = await ep.latestRoot();
+      const onChainASPRoot = await ppReadWithRpc(async (rpc) => {
+        const ep = new ethers.Contract(PP_ENTRYPOINT, PP_ENTRYPOINT_ABI, rpc);
+        return await ep.latestRoot();
+      });
       if (aspTree.root !== onChainASPRoot) {
         showStatus('ASP root mismatch: local 0x' + aspTree.root.toString(16).slice(0, 16) + '... vs onchain 0x' + onChainASPRoot.toString(16).slice(0, 16) + '... — API data is stale. Retry in a few minutes.', 'error');
         return;
@@ -12380,11 +12401,12 @@ async function ppwWithdraw() {
     // Local proof sanity check before submission.
     log('Verifying proof locally against pool verifier...');
     try {
-      const rpc = await quoteRPC.call(r => r);
-      const poolRO = new ethers.Contract(poolAddress, PP_POOL_ABI, rpc);
-      const verifierAddress = await poolRO.WITHDRAWAL_VERIFIER();
-      const verifier = new ethers.Contract(verifierAddress, PP_VERIFIER_ABI, rpc);
-      const isProofValid = await verifier.verifyProof.staticCall(pA, pB, pC, pubSigs);
+      const isProofValid = await ppReadWithRpc(async (rpc) => {
+        const poolRO = new ethers.Contract(poolAddress, PP_POOL_ABI, rpc);
+        const verifierAddress = await poolRO.WITHDRAWAL_VERIFIER();
+        const verifier = new ethers.Contract(verifierAddress, PP_VERIFIER_ABI, rpc);
+        return await verifier.verifyProof.staticCall(pA, pB, pC, pubSigs);
+      });
       if (!isProofValid) {
         showStatus('Proof failed local verifier check. Retry withdrawal.', 'error');
         return;
@@ -12491,9 +12513,8 @@ async function ppwWithdraw() {
         log('Relayer accepted! Transaction: ' + txHash);
         setText(btn, 'Waiting for confirmation...');
         // Poll for receipt (same pattern as waitForTx)
-        const rpc = await quoteRPC.call(r => r);
         for (let _rp = 0; _rp < 60; _rp++) {
-          receipt = await rpc.getTransactionReceipt(txHash).catch(() => null);
+          receipt = await ppReadWithRpc(async (rpc) => await rpc.getTransactionReceipt(txHash)).catch(() => null);
           if (receipt) break;
           await new Promise(r => setTimeout(r, 2000));
         }

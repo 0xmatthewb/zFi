@@ -240,7 +240,8 @@ contract zQuoter {
         CurveAcc memory acc;
         acc.bestIn = type(uint256).max;
 
-        for (uint256 k; k < limit_; ++k) {
+        uint256 considered;
+        for (uint256 k; k < totalLen && considered < limit_; ++k) {
             // Walk pools1 first, then pools2
             bool fromSet2 = k >= pools1.length;
             address pool = fromSet2 ? pools2[k - pools1.length] : pools1[k];
@@ -250,11 +251,14 @@ contract zQuoter {
             if (fromSet2) {
                 bool dup;
                 for (uint256 d; d < pools1.length; ++d) {
-                    if (pools1[d] == pool) dup = true;
-                    break;
+                    if (pools1[d] == pool) {
+                        dup = true;
+                        break;
+                    }
                 }
                 if (dup) continue;
             }
+            ++considered;
 
             // Try coin indices with both address representations
             address qa = fromSet2 ? aWeth : aEth;

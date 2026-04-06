@@ -39,6 +39,10 @@ contract zQuoterForkTest is Test {
         return b.amountOut > 0 ? b.amountOut : a.amountOut;
     }
 
+    function _slippageLimit(bool exactOut, uint256 quoted, uint256 bps) external pure returns (uint256) {
+        return SlippageLib.limit(exactOut, quoted, bps);
+    }
+
     // ================================================================
     //  1. getQuotes — EXACT-IN (frontend's primary quoting path)
     // ================================================================
@@ -595,6 +599,62 @@ contract zQuoterForkTest is Test {
         }
     }
 
+    function test_quoteCurve_skips_duplicate_eth_weth_registry_entries() public {
+        address poolA = _ROUTER;
+        address poolB = _USDT;
+
+        address[] memory curveEthPools = new address[](1);
+        curveEthPools[0] = poolA;
+        address[] memory wethPools = new address[](2);
+        wethPools[0] = poolA;
+        wethPools[1] = poolB;
+
+        vm.mockCall(
+            CURVE_METAREGISTRY,
+            abi.encodeWithSelector(ICurveMetaRegistry.find_pools_for_coins.selector, CURVE_ETH, _USDC),
+            abi.encode(curveEthPools)
+        );
+        vm.mockCall(
+            CURVE_METAREGISTRY,
+            abi.encodeWithSelector(ICurveMetaRegistry.find_pools_for_coins.selector, _WETH, _USDC),
+            abi.encode(wethPools)
+        );
+
+        bytes memory indices = abi.encode(int128(0), int128(1), false);
+        vm.mockCall(
+            CURVE_METAREGISTRY,
+            abi.encodeWithSelector(ICurveMetaRegistry.get_coin_indices.selector, poolA, CURVE_ETH, _USDC, 0),
+            indices
+        );
+        vm.mockCall(
+            CURVE_METAREGISTRY,
+            abi.encodeWithSelector(ICurveMetaRegistry.get_coin_indices.selector, poolA, _WETH, _USDC, 0),
+            indices
+        );
+        vm.mockCall(
+            CURVE_METAREGISTRY,
+            abi.encodeWithSelector(ICurveMetaRegistry.get_coin_indices.selector, poolB, _WETH, _USDC, 0),
+            indices
+        );
+
+        vm.mockCall(
+            poolA,
+            abi.encodeWithSelector(ICurveCryptoLike.get_dy.selector, uint256(0), uint256(1), uint256(1 ether)),
+            abi.encode(uint256(100))
+        );
+        vm.mockCall(
+            poolB,
+            abi.encodeWithSelector(ICurveCryptoLike.get_dy.selector, uint256(0), uint256(1), uint256(1 ether)),
+            abi.encode(uint256(200))
+        );
+
+        (uint256 amountIn, uint256 amountOut, address pool,,,,) = quoter.quoteCurve(false, ETH, _USDC, 1 ether, 2);
+
+        assertEq(amountIn, 1 ether, "exact-in quote should preserve the requested input");
+        assertEq(amountOut, 200, "candidate budget should reach the unique second pool");
+        assertEq(pool, poolB, "duplicate pool entries should not block a better unique pool");
+    }
+
     function test_quoteCurve_zeroAmount() public view {
         (uint256 ai, uint256 ao, address pool,,,,) = quoter.quoteCurve(false, _USDC, _USDT, 0, 8);
         assertEq(ai, 0);
@@ -753,8 +813,8 @@ contract zQuoterForkTest is Test {
     }
 
     function test_slippage_max_bps_reverts() public {
-        vm.expectRevert();
-        SlippageLib.limit(false, 1000e6, 10000); // 100% = BPS, should revert
+        vm.expectRevert(SlippageLib.SlippageBpsTooHigh.selector);
+        this._slippageLimit(false, 1000e6, 10000); // 100% = BPS, should revert
     }
 
     function test_slippage_high_bps() public view {
@@ -767,7 +827,7 @@ contract zQuoterForkTest is Test {
         // Verify ceiling division: 1 wei quoted with 1 bps
         // maxIn = ceil(1 * 10001 / 10000) = ceil(1.0001) = 2
         uint256 lim = SlippageLib.limit(true, 1, 1);
-        assertEq(lim, 1, "1 * 10001 / 10000 = 1 (no extra needed at this scale)");
+        assertEq(lim, 2, "1 * 10001 / 10000 should round up to 2");
     }
 
     // ================================================================

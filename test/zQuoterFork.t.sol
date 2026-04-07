@@ -655,6 +655,49 @@ contract zQuoterForkTest is Test {
         assertEq(pool, poolB, "duplicate pool entries should not block a better unique pool");
     }
 
+    function test_quoteCurve_skips_duplicate_at_pools1_index_gt0() public {
+        // pools1 = [poolA, poolB], pools2 = [poolB, poolC]
+        // poolB is the duplicate at pools1 index 1 -- the old bug only checked index 0.
+        address poolA = _ROUTER;
+        address poolB = _USDT;
+        address poolC = _DAI;
+
+        address[] memory curveEthPools = new address[](2);
+        curveEthPools[0] = poolA;
+        curveEthPools[1] = poolB;
+        address[] memory wethPools = new address[](2);
+        wethPools[0] = poolB; // duplicate of pools1[1]
+        wethPools[1] = poolC;
+
+        vm.mockCall(
+            CURVE_METAREGISTRY,
+            abi.encodeWithSelector(ICurveMetaRegistry.find_pools_for_coins.selector, CURVE_ETH, _USDC),
+            abi.encode(curveEthPools)
+        );
+        vm.mockCall(
+            CURVE_METAREGISTRY,
+            abi.encodeWithSelector(ICurveMetaRegistry.find_pools_for_coins.selector, _WETH, _USDC),
+            abi.encode(wethPools)
+        );
+
+        bytes memory indices = abi.encode(int128(0), int128(1), false);
+        vm.mockCall(CURVE_METAREGISTRY, abi.encodeWithSelector(ICurveMetaRegistry.get_coin_indices.selector, poolA, CURVE_ETH, _USDC, 0), indices);
+        vm.mockCall(CURVE_METAREGISTRY, abi.encodeWithSelector(ICurveMetaRegistry.get_coin_indices.selector, poolB, CURVE_ETH, _USDC, 0), indices);
+        vm.mockCall(CURVE_METAREGISTRY, abi.encodeWithSelector(ICurveMetaRegistry.get_coin_indices.selector, poolB, _WETH, _USDC, 0), indices);
+        vm.mockCall(CURVE_METAREGISTRY, abi.encodeWithSelector(ICurveMetaRegistry.get_coin_indices.selector, poolC, _WETH, _USDC, 0), indices);
+
+        vm.mockCall(poolA, abi.encodeWithSelector(ICurveCryptoLike.get_dy.selector, uint256(0), uint256(1), uint256(1 ether)), abi.encode(uint256(50)));
+        vm.mockCall(poolB, abi.encodeWithSelector(ICurveCryptoLike.get_dy.selector, uint256(0), uint256(1), uint256(1 ether)), abi.encode(uint256(100)));
+        vm.mockCall(poolC, abi.encodeWithSelector(ICurveCryptoLike.get_dy.selector, uint256(0), uint256(1), uint256(1 ether)), abi.encode(uint256(300)));
+
+        // With limit=3, should evaluate poolA(50), poolB(100), poolC(300) -- poolB deduped from pools2
+        (uint256 amountIn, uint256 amountOut, address pool,,,,) = quoter.quoteCurve(false, ETH, _USDC, 1 ether, 3);
+
+        assertEq(amountIn, 1 ether);
+        assertEq(amountOut, 300, "dedup at pools1 index >0 should still allow unique pool through");
+        assertEq(pool, poolC, "best unique pool should win after dedup of pools1[1] match");
+    }
+
     function test_quoteCurve_zeroAmount() public view {
         (uint256 ai, uint256 ao, address pool,,,,) = quoter.quoteCurve(false, _USDC, _USDT, 0, 8);
         assertEq(ai, 0);

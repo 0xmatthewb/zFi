@@ -8,8 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = 8080;
+const __dirname = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dapp');
+const PORT = parseInt(process.env.PORT, 10) || 3000;
 
 const MIME = {
   '.html': 'text/html',

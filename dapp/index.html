@@ -650,6 +650,11 @@ body.modal-open { overflow: hidden; }
   /* Privacy tab mobile */
   .pp-note-area { font-size: 10px; }
   .pp-asset-btn { padding: 8px 6px; font-size: 12px; min-height: 40px; }
+  /* Trollbox mobile */
+  .trollbox-input input { font-size:16px; padding:12px; }
+  .trollbox-input button { padding:12px 16px; font-size:14px; }
+  .trollbox-msgs { max-height:220px; }
+  .trollbox-msg .tb-img { max-width:140px; }
   /* Coin launch form mobile */
   .coin-name-row { flex-direction:column;gap:0; }
   .coin-name-row .section { margin-bottom:14px; }
@@ -846,6 +851,31 @@ body.modal-open { overflow: hidden; }
 .pm-odds-bar { height:4px;display:flex;border-radius:2px;overflow:hidden;width:100%;margin-top:4px; }
 .pm-odds-yes { background:var(--green, #22c55e); }
 .pm-odds-no { background:var(--red, #ef4444); }
+
+/* Trollbox */
+.trollbox { border:1px solid var(--border); background:var(--bg); margin-top:12px; display:flex; flex-direction:column; font-size:13px; border-radius:4px; }
+.trollbox-header { padding:12px 14px; border-bottom:1px solid var(--card-border); font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:space-between; user-select:none; -webkit-tap-highlight-color:transparent; }
+.trollbox-header .tb-badge { background:var(--btn-bg); color:var(--btn-fg); border-radius:10px; padding:1px 6px; font-size:11px; display:none; }
+.trollbox-msgs { overflow-y:auto; padding:8px 10px; max-height:280px; min-height:0; transition:max-height .2s ease; -webkit-overflow-scrolling:touch; }
+.trollbox.collapsed .trollbox-msgs, .trollbox.collapsed .trollbox-input { display:none; }
+.trollbox-input { display:flex; gap:8px; padding:10px; border-top:1px solid var(--card-border); }
+.trollbox-input input { flex:1; min-width:0; background:var(--surface); border:1px solid var(--card-border); border-radius:4px; padding:10px 12px; color:var(--fg); font-size:14px; outline:none; font-family:inherit; -webkit-appearance:none; }
+.trollbox-input input:focus { border-color:var(--btn-bg); }
+.trollbox-input input::placeholder { color:var(--input-ph); }
+.trollbox-input button { background:var(--btn-bg); border:none; color:var(--btn-fg); border-radius:4px; padding:10px 18px; font-size:14px; cursor:pointer; font-family:inherit; white-space:nowrap; -webkit-tap-highlight-color:transparent; }
+.trollbox-input button:hover { background:var(--btn-hover); }
+.trollbox-input button:active { opacity:0.8; }
+.trollbox-msg { display:flex; gap:8px; padding:4px 0; }
+.trollbox-msg .tb-avatar { flex-shrink:0; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+.trollbox-msg .tb-avatar span { font-size:10px; font-weight:700; color:#fff; }
+.trollbox-msg .tb-name { font-weight:600; }
+.trollbox-msg .tb-time { color:var(--fg-muted); font-size:11px; margin-left:6px; }
+.trollbox-msg .tb-text { margin-top:2px; word-break:break-word; }
+.trollbox-msg .tb-text a { color:var(--link-fg, #7B8CFF); }
+.trollbox-msg .tb-img { max-width:180px; max-height:120px; border-radius:6px; margin-top:4px; display:block; cursor:pointer; }
+.trollbox-react { display:flex; gap:4px; margin-top:3px; flex-wrap:wrap; }
+.trollbox-react button { background:var(--surface); border:1px solid var(--card-border); border-radius:12px; padding:2px 8px; font-size:12px; cursor:pointer; line-height:1.5; -webkit-tap-highlight-color:transparent; }
+.trollbox-react button.active { border-color:var(--btn-bg); }
 
 /* Swap card container */
 .swap-card {
@@ -1126,6 +1156,18 @@ body.modal-open { overflow: hidden; }
 </div><!-- end swapTab -->
 
 <div id="liveSalesSection" class="live-sales" style="display:none"></div>
+<!-- Chat (MiniMeet) — lazy-loads on first open -->
+<div id="trollbox" class="trollbox collapsed">
+  <div class="trollbox-header" onclick="tbToggle()">
+    Chat <span id="tbBadge" class="tb-badge">0</span>
+    <span id="tbChevron" style="font-size:9px;color:var(--fg-muted)">&#9654;</span>
+  </div>
+  <div id="tbMessages" class="trollbox-msgs"></div>
+  <div class="trollbox-input">
+    <input id="tbInput" type="text" maxlength="500" placeholder="Connect wallet to post" disabled onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();tbSend()}">
+    <button onclick="tbSend()">Send</button>
+  </div>
+</div>
 <div id="fwDaicoSection" class="live-sales" style="display:none"></div>
 <div id="featuredPmSection" class="live-sales" style="display:none"></div>
 
@@ -1700,6 +1742,25 @@ async function loadLiveSale() {
   } catch (e) { console.warn('Live sale load failed:', e); }
 }
 // ---- Featured prediction market (top active ETH market by TVL, from predict cache) ----
+function parsePmDesc(desc) {
+  if (!desc) return 'Prediction market';
+  const p = desc.split('|');
+  const type = p[0];
+  const fmtPrice = v => { v = parseInt(v); if (v >= 1e6) return `$${(v/1e6).toFixed(v%1e6===0?0:1)}M`; if (v >= 1000) return `$${(v/1000).toFixed(v%1000===0?0:1)}K`; return `$${v}`; };
+  const fmtDate = ts => { const d = new Date(parseInt(ts)*1000), n = new Date(); return d.getFullYear()===n.getFullYear() ? d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) : d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); };
+  const fmtBal = v => { v = parseFloat(v); if (v >= 1e9) return `${(v/1e9).toFixed(1)}B`; if (v >= 1e6) return `${(v/1e6).toFixed(1)}M`; if (v >= 1000) return `${(v/1000).toFixed(1)}K`; return v.toFixed(1); };
+  const shortAddr = a => `${a.slice(0,6)}...${a.slice(-4)}`;
+  if (type === 'PRICE' && p.length >= 6) { const [,asset,,op,thresh,close] = p; const verb = (parseInt(op)===0||parseInt(op)===2) ? 'drop to' : 'hit'; return `${asset} ${verb} ${fmtPrice(thresh)} by ${fmtDate(close)}?`; }
+  if (type === 'ETHBAL' && p.length >= 5) { const [,addr,op,thresh,close] = p; const verb = (parseInt(op)===0||parseInt(op)===2) ? 'have under' : 'hold'; return `${shortAddr(addr)} ${verb} ${fmtBal(thresh)} ETH by ${fmtDate(close)}?`; }
+  if (type === 'TOKBAL' && p.length >= 6) { const [,token,addr,op,thresh,close] = p; const verb = (parseInt(op)===0||parseInt(op)===2) ? 'have under' : 'hold'; return `${shortAddr(addr)} ${verb} ${fmtBal(thresh)} ${shortAddr(token)} by ${fmtDate(close)}?`; }
+  if (type === 'NFTBAL' && p.length >= 6) { const [,token,addr,op,thresh,close] = p; const verb = (parseInt(op)===0||parseInt(op)===2) ? 'have under' : 'hold'; return `${shortAddr(addr)} ${verb} ${parseInt(p[4])} ${shortAddr(token)} NFTs by ${fmtDate(close)}?`; }
+  if (type === 'GAS' && p.length >= 4) { const [,subtype,...rest] = p; const date = fmtDate(rest[rest.length-1]); if (subtype === 'RANGE') return `Gas stay in ${rest[0]}-${rest[1]} gwei by ${date}?`; const labels = {TWAP:'avg',PEAK:'spike to',TROUGH:'dip to',VOL:'swing',VOLATILITY:'swing'}; return `Gas ${labels[subtype]||subtype.toLowerCase()} ${rest[0]} gwei by ${date}?`; }
+  if (type === 'SUPPLY' && p.length >= 5) { const [,token,op,thresh,close] = p; const verb = (parseInt(op)===0||parseInt(op)===2) ? 'drop below' : 'exceed'; return `${shortAddr(token)} supply ${verb} ${fmtBal(thresh)} by ${fmtDate(close)}?`; }
+  const qMatch = desc.match(/^(.+?\?)/);
+  if (qMatch) return qMatch[1];
+  return desc.length > 80 ? desc.slice(0, 77) + '...' : desc;
+}
+
 function renderFeaturedPm(m) {
   const el = $('featuredPmSection');
   if (!el) return;
@@ -1710,9 +1771,9 @@ function renderFeaturedPm(m) {
   const payout = cheapPct > 0 ? 0.01 / (cheapPct / 100) : 0;
   const mult = payout > 0 ? (payout / 0.01).toFixed(1) : '?';
   const hintHtml = payout > 0 ? `<div style="font-size:10px;color:var(--fg-muted);margin-top:3px">0.01 ETH &rarr; ${payout.toFixed(3)} ETH if ${cheapSide} <span style="color:var(--green, #22c55e)">(${mult}x)</span></div>` : '';
-  const tvlFmt = m.tvl >= 1 ? m.tvl.toFixed(2) : m.tvl.toFixed(4);
+  const tvlFmt = m.tvl >= 100 ? m.tvl.toFixed(2) : m.tvl >= 1 ? m.tvl.toFixed(4) : m.tvl.toFixed(6);
   const collSym = (!m.collateral || m.collateral === ZERO_ADDRESS) ? 'ETH' : 'TOKEN';
-  const question = (m.question || 'Prediction market').replace(/<[^>]*>/g, '');
+  const question = (m.rawDesc ? parsePmDesc(m.rawDesc) : (m.question || 'Prediction market').replace(/<[^>]*>/g, ''));
   el.innerHTML = `<div style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--fg-dim);margin-bottom:6px">predictions</div><a class="live-sale-card" href="predict/#${m.marketId}">
     <div class="live-sale-info">
       <div class="live-sale-name" style="white-space:normal;-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden">${esc(question)}</div>
@@ -1725,21 +1786,74 @@ function renderFeaturedPm(m) {
   if (_activeTab === 'swap') el.style.display = '';
 }
 
-function loadFeaturedPm() {
-  // Use predict gallery's localStorage cache — instant, no RPC needed
+async function loadFeaturedPm() {
+  // Try localStorage cache first (instant)
   try {
     const raw = localStorage.getItem('zfi_predict_markets');
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (!parsed.data || !parsed.data.length) return;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.data && parsed.data.length) {
+        const now = Math.floor(Date.now() / 1000);
+        const active = parsed.data.filter(m => !m.resolved && m.close > now && (m.tvl || 0) >= 0.01
+          && (!m.collateral || m.collateral === ZERO_ADDRESS)
+          && m.oddsLoaded && m.y > 0 && m.y < 100);
+        if (active.length) {
+          active.sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
+          renderFeaturedPm(active[0]);
+          return;
+        }
+      }
+    }
+  } catch {}
+  // No usable cache — lightweight on-chain fetch (paginated)
+  try {
+    const _PM_PAMM = '0x000000000044bfe6c2BBFeD8862973E0612f07C0';
+    const _PM_QUOTER = '0x8F4283c327afF696789e23589c8c79306909B2Be';
+    const rpc = new ethers.JsonRpcProvider("https://ethereum.publicnode.com", 1, { staticNetwork: true });
+    const pamm = new ethers.Contract(_PM_PAMM, [
+      'function getMarkets(uint256 start, uint256 count) view returns (uint256[] marketIds, address[] resolvers, address[] collaterals, uint8[] states, uint64[] closes, uint256[] collateralAmounts, uint256[] yesSupplies, uint256[] noSupplies, string[] descs, uint256 next)'
+    ], rpc);
     const now = Math.floor(Date.now() / 1000);
-    const active = parsed.data.filter(m => !m.resolved && m.close > now && (m.tvl || 0) >= 0.01
-      && (!m.collateral || m.collateral === ZERO_ADDRESS)
-      && m.oddsLoaded && m.y > 0 && m.y < 100);
-    if (!active.length) return;
-    active.sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
-    renderFeaturedPm(active[0]);
-  } catch (e) { console.warn('Featured PM failed:', e); }
+    const candidates = [];
+    let start = 0, pages = 0;
+    while (pages < 20) {
+      let result;
+      try { result = await pamm.getMarkets(start, 50); } catch { if (start === 0) throw new Error('RPC failed'); break; }
+      if (result.marketIds.length === 0) break;
+      pages++;
+      for (let i = 0; i < result.marketIds.length; i++) {
+        const close = Number(result.closes[i]);
+        const states = Number(result.states[i]);
+        const resolved = (states & 1) !== 0;
+        const collateral = result.collaterals[i];
+        const tvl = Number(result.collateralAmounts[i]) / 1e18;
+        if (resolved || close <= now || tvl < 0.01) continue;
+        if (collateral !== ZERO_ADDRESS) continue;
+        const desc = result.descs[i] || '';
+        const question = parsePmDesc(desc);
+        candidates.push({ marketId: result.marketIds[i].toString(), question, rawDesc: desc, close, tvl, collateral });
+      }
+      start = Number(result.next);
+      if (start === 0) break;
+      // If we have a strong candidate (≥0.1 ETH TVL), stop paginating — good enough
+      if (candidates.length && candidates.reduce((best, c) => c.tvl > best.tvl ? c : best, candidates[0]).tvl >= 0.1) break;
+    }
+    if (!candidates.length) return;
+    candidates.sort((a, b) => b.tvl - a.tvl);
+    const best = candidates[0];
+    // Fetch odds for the top candidate
+    try {
+      const quoter = new ethers.Contract(_PM_QUOTER, [
+        'function getMarketSummary(uint256 marketId) view returns (uint112 ammYesReserve, uint112 ammNoReserve, uint256 ammPriceYesBps, uint256 feeBps, uint112 vaultYesShares, uint112 vaultNoShares, uint256 totalYesVaultLP, uint256 totalNoVaultLP, uint256 vaultBudget, uint256 twapPriceYesBps, uint64 closeTime, bool resolved, bool inCloseWindow)'
+      ], rpc);
+      const summary = await quoter.getMarketSummary(best.marketId);
+      best.y = Math.round(Number(summary.ammPriceYesBps) / 100);
+      best.oddsLoaded = true;
+    } catch {
+      best.y = 50; best.oddsLoaded = true;
+    }
+    if (best.y > 0 && best.y < 100) renderFeaturedPm(best);
+  } catch (e) { console.warn('Featured PM fetch failed:', e); }
 }
 
 // Load featured PM on page init (non-blocking)
@@ -8702,11 +8816,286 @@ $("swapBtn").addEventListener("click", () => {
   executeSwap();
 });
 
+// ---- Chat (MiniMeet) — lazy-loads on first open ----
+(function() {
+  const TB_URL = "https://www.minimeet.cc";
+  const TB_WEI_REG = "0x0000000000696760E15f265e828DB644A0c242EB";
+  let tbSocket = null, tbUserId = null, tbDisplayName = null, tbAddr = null;
+  let tbCollapsed = true, tbUnread = 0, tbRetryTimer = null, tbConnecting = false, tbReadOnly = false;
+  let _ioLoaded = null;
+  function loadSocketIO() {
+    if(_ioLoaded) return _ioLoaded;
+    return _ioLoaded = new Promise((resolve, reject) => {
+      if(typeof io !== 'undefined') { resolve(); return; }
+      const s = document.createElement('script');
+      s.src = 'https://cdn.socket.io/4.8.3/socket.io.min.js';
+      s.integrity = 'sha384-kzavj5fiMwLKzzD1f8S7TeoVIEi7uKHvbTA3ueZkrzYq75pNQUiUi6Dy98Q3fxb0';
+      s.crossOrigin = 'anonymous';
+      s.onload = resolve;
+      s.onerror = () => { _ioLoaded = null; reject(new Error('Socket.IO load failed')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function tbEsc(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+  function tbLinkify(t) { return t.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--link-fg,#7B8CFF)">$1</a>'); }
+  function tbColor(s) { let h=0; for(let i=0;i<s.length;i++) h=s.charCodeAt(i)+((h<<5)-h); return `hsl(${h%360},70%,60%)`; }
+
+  async function tbResolveName(addr) {
+    const t = (p,ms) => Promise.race([p, new Promise((_,r)=>setTimeout(r,ms))]);
+    const rpc = new ethers.JsonRpcProvider("https://ethereum.publicnode.com", 1, { staticNetwork: true });
+    try { const ns = new ethers.Contract(TB_WEI_REG,["function reverseResolve(address) view returns (string)"],rpc); const w = await t(ns.reverseResolve(addr),5000); if(w) return w.toLowerCase(); } catch{}
+    try { const e = await t(rpc.lookupAddress(addr),5000); if(e) return e.toLowerCase(); } catch{}
+    return addr.slice(0,6)+"..."+addr.slice(-4);
+  }
+
+  function tbStatus(text) {
+    const c = $('tbMessages'); if(!c) return;
+    c.innerHTML = `<div style="padding:12px 4px;color:var(--fg-muted);font-size:12px;text-align:center">${tbEsc(text)}</div>`;
+  }
+
+  function tbAppend(msg) {
+    const c = $('tbMessages'); if(!c) return;
+    const el = document.createElement('div');
+    el.className = 'trollbox-msg'; el.dataset.msgId = msg.id;
+    const color = tbColor(msg.name);
+    const d = new Date(msg.ts);
+    const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
+    el.innerHTML = `<div class="tb-avatar" style="background:${msg.avatar?`url(${tbEsc(msg.avatar)}) center/cover`:color}">
+      ${msg.avatar?'':`<span>${tbEsc(msg.name.slice(0,2).toUpperCase())}</span>`}
+    </div><div style="min-width:0">
+      <span class="tb-name" style="color:${color}">${tbEsc(msg.name)}</span>
+      <span class="tb-time">${hh}:${mm}</span>
+      ${msg.text?`<div class="tb-text">${tbLinkify(tbEsc(msg.text))}</div>`:''}
+      ${msg.image?`<img class="tb-img" src="${tbEsc(msg.image)}" onclick="window.open(this.src)">`:''}
+      <div class="trollbox-react" data-mid="${tbEsc(msg.id)}">${tbRenderReactions(msg.id, msg.reactions)}</div>
+    </div>`;
+    c.appendChild(el);
+    c.scrollTop = c.scrollHeight;
+    if(tbCollapsed && tbUserId && msg.userId !== tbUserId) {
+      tbUnread++;
+      const badge = $('tbBadge');
+      if(badge) { badge.textContent = tbUnread; badge.style.display = ''; }
+    }
+  }
+
+  function tbRenderReactions(msgId, reactions) {
+    if(!reactions) return '';
+    const counts = {};
+    for(const [uid, emoji] of Object.entries(reactions)) {
+      if(!counts[emoji]) counts[emoji] = { n:0, mine:false };
+      counts[emoji].n++;
+      if(uid === tbUserId) counts[emoji].mine = true;
+    }
+    return Object.entries(counts).map(([emoji, {n, mine}]) =>
+      `<button class="${mine?'active':''}" onclick="tbReact('${tbEsc(msgId)}','${tbEsc(emoji)}')">${emoji} ${n}</button>`
+    ).join('');
+  }
+
+  function tbUpdateReactions(msgId, reactions) {
+    const el = document.querySelector(`.trollbox-react[data-mid="${msgId}"]`);
+    if(el) el.innerHTML = tbRenderReactions(msgId, reactions);
+  }
+
+  window.tbReact = function(msgId, emoji) {
+    if(tbSocket && tbUserId) tbSocket.emit('chat-react', { msgId, emoji });
+  };
+
+  function tbSetInputState() {
+    const inp = $('tbInput');
+    if(!inp) return;
+    if(tbUserId) {
+      inp.disabled = false;
+      inp.placeholder = 'Say something...';
+    } else {
+      inp.disabled = true;
+      inp.placeholder = _connectedAddress ? 'Sign to post...' : 'Connect wallet to post';
+    }
+  }
+
+  // Toggle open/close — lazy-connects on first open
+  window.tbToggle = function() {
+    const box = $('trollbox'); if(!box) return;
+    tbCollapsed = !tbCollapsed;
+    box.classList.toggle('collapsed', tbCollapsed);
+    $('tbChevron').innerHTML = tbCollapsed ? '&#9654;' : '&#9660;';
+    if(!tbCollapsed) {
+      tbUnread = 0;
+      const badge = $('tbBadge'); if(badge) badge.style.display = 'none';
+      if(!tbSocket && !tbConnecting) {
+        if(_connectedAddress) tbConnect();
+        else tbConnectReadOnly();
+      } else { const c = $('tbMessages'); if(c) c.scrollTop = c.scrollHeight; }
+    }
+  };
+
+  window.tbSend = function() {
+    const inp = $('tbInput'); if(!inp) return;
+    const txt = inp.value.trim().slice(0,500);
+    if(!tbUserId) {
+      // Not authed yet — try to upgrade if wallet is connected
+      if(_connectedAddress && _signer && tbSocket) tbUpgradeAuth();
+      return;
+    }
+    if(!txt || !tbSocket) return;
+    tbSocket.emit('chat-public', { text: txt });
+    inp.value = '';
+  };
+
+  function tbSetupSocketListeners() {
+    tbSocket.on('chat-public', tbAppend);
+    tbSocket.on('chat-history', (msgs) => { $('tbMessages').innerHTML = ''; msgs.forEach(tbAppend); });
+    tbSocket.on('chat-react', ({ msgId, reactions }) => tbUpdateReactions(msgId, reactions));
+  }
+
+  // Read-only connection — no wallet required, just listen for messages
+  async function tbConnectReadOnly() {
+    if(tbSocket || tbConnecting) return;
+    tbConnecting = true;
+    tbReadOnly = true;
+    tbStatus('Loading chat...');
+    tbSetInputState();
+    try {
+      await loadSocketIO();
+      tbSocket = io(TB_URL, { transports:["websocket","polling"], reconnection:true, reconnectionAttempts:Infinity, reconnectionDelay:1000, reconnectionDelayMax:10000 });
+      tbSetupSocketListeners();
+      tbSocket.on('connect', () => {
+        tbSocket.emit('chat-history');
+        // If server requires auth for history, show hint after timeout
+        setTimeout(() => {
+          const c = $('tbMessages');
+          if(c && c.querySelector('[style*="text-align:center"]') && !tbUserId) {
+            tbStatus('Connect wallet to see full chat');
+          }
+        }, 5000);
+      });
+      tbSocket.on('registered', (data) => {
+        tbUserId = data.userId;
+        if(data.sessionToken) localStorage.setItem('zfi_tb_session', data.sessionToken);
+        tbSocket.emit('chat-history');
+        tbReadOnly = false;
+        tbSetInputState();
+      });
+      tbSocket.on('register-error', ({ message }) => { console.error('Chat auth failed:', message); });
+      tbSocket.on('reconnect', () => {
+        if(tbUserId) tbSocket.emit('register', { name:tbDisplayName, reconnectUserId:tbUserId, walletAddress:tbAddr });
+        else tbSocket.emit('chat-history');
+      });
+      if(tbRetryTimer) { clearTimeout(tbRetryTimer); tbRetryTimer = null; }
+    } catch(e) {
+      console.error('Chat connect error:', e);
+      if(tbSocket) { try { tbSocket.disconnect(); } catch(_){} }
+      tbSocket = null;
+      tbStatus('Chat offline');
+      tbRetryTimer = setTimeout(() => tbConnectReadOnly(), 15000);
+    } finally { tbConnecting = false; }
+  }
+
+  // Full auth connection — wallet required
+  async function tbConnect() {
+    if(tbConnecting) return;
+    // If already connected read-only, upgrade in place
+    if(tbSocket && tbReadOnly) { tbUpgradeAuth(); return; }
+    if(tbSocket) return;
+    if(!_signer || !_connectedAddress) { tbConnectReadOnly(); return; }
+    tbConnecting = true;
+    tbStatus('Connecting...');
+    try {
+      await loadSocketIO();
+      tbAddr = _connectedAddress.toLowerCase();
+      const [displayName, nonceRes] = await Promise.all([
+        tbResolveName(tbAddr),
+        fetch(`${TB_URL}/auth/wallet/nonce?address=${encodeURIComponent(tbAddr)}`)
+      ]);
+      tbDisplayName = displayName;
+      if(!nonceRes.ok) throw new Error('Nonce request failed (' + nonceRes.status + ')');
+      const { message, nonce } = await nonceRes.json();
+      const signature = await _signer.signMessage(message);
+      const sess = localStorage.getItem('zfi_tb_session');
+
+      tbSocket = io(TB_URL, { transports:["websocket","polling"], reconnection:true, reconnectionAttempts:Infinity, reconnectionDelay:1000, reconnectionDelayMax:10000 });
+      tbSetupSocketListeners();
+
+      tbSocket.on('connect', () => {
+        const payload = { name:tbDisplayName, walletAddress:tbAddr, walletSignature:signature, walletNonce:nonce };
+        if(sess) payload.sessionToken = sess;
+        tbSocket.emit('register', payload);
+      });
+
+      tbSocket.on('registered', (data) => {
+        tbUserId = data.userId;
+        if(data.sessionToken) localStorage.setItem('zfi_tb_session', data.sessionToken);
+        tbSocket.emit('chat-history');
+        tbReadOnly = false;
+        tbSetInputState();
+      });
+
+      tbSocket.on('register-error', ({ message }) => { console.error('Chat auth failed:', message); tbStatus('Auth failed'); });
+      tbSocket.on('reconnect', () => {
+        tbSocket.emit('register', { name:tbDisplayName, reconnectUserId:tbUserId, walletAddress:tbAddr });
+      });
+
+      if(tbRetryTimer) { clearTimeout(tbRetryTimer); tbRetryTimer = null; }
+    } catch(e) {
+      console.error('Chat connect error:', e);
+      if(tbSocket) { try { tbSocket.disconnect(); } catch(_){} }
+      tbSocket = null;
+      tbStatus('Chat offline \u2014 retrying...');
+      tbRetryTimer = setTimeout(() => { if(_connectedAddress) tbConnect(); }, 15000);
+    } finally { tbConnecting = false; }
+  }
+
+  // Upgrade a read-only socket to fully authenticated
+  async function tbUpgradeAuth() {
+    if(!tbSocket || !_signer || !_connectedAddress) return;
+    try {
+      tbAddr = _connectedAddress.toLowerCase();
+      const [displayName, nonceRes] = await Promise.all([
+        tbResolveName(tbAddr),
+        fetch(`${TB_URL}/auth/wallet/nonce?address=${encodeURIComponent(tbAddr)}`)
+      ]);
+      tbDisplayName = displayName;
+      if(!nonceRes.ok) throw new Error('Nonce request failed');
+      const { message, nonce } = await nonceRes.json();
+      const signature = await _signer.signMessage(message);
+      const sess = localStorage.getItem('zfi_tb_session');
+      const payload = { name:tbDisplayName, walletAddress:tbAddr, walletSignature:signature, walletNonce:nonce };
+      if(sess) payload.sessionToken = sess;
+      tbSocket.emit('register', payload);
+    } catch(e) { console.error('Chat upgrade error:', e); }
+  }
+
+  window.tbDisconnect = function() {
+    if(tbRetryTimer) { clearTimeout(tbRetryTimer); tbRetryTimer = null; }
+    if(tbSocket) { tbSocket.disconnect(); tbSocket = null; }
+    tbUserId = null; tbDisplayName = null; tbAddr = null; tbUnread = 0;
+    tbConnecting = false; tbReadOnly = false;
+    const box = $('trollbox'); if(box) box.classList.add('collapsed');
+    tbCollapsed = true;
+    $('tbMessages').innerHTML = '';
+    tbSetInputState();
+    const badge = $('tbBadge'); if(badge) badge.style.display = 'none';
+  };
+
+  // Upgrade chat when wallet connects (if chat is open in read-only mode)
+  window.tbOnWalletConnect = function() {
+    tbSetInputState();
+    if(tbSocket && tbReadOnly && !tbCollapsed) tbUpgradeAuth();
+  };
+
+  // Hide chat when not on swap tab
+  window.tbSyncVisibility = function() {
+    const box = $('trollbox'); if(!box) return;
+    box.style.display = $('swapTab')?.style.display !== 'none' ? '' : 'none';
+  };
+})();
+
 walletInit({
   appName: 'zFi',
   onConnect: [() => {
     updateBalances();
     handleAmountChange();
+    if(typeof tbOnWalletConnect === 'function') tbOnWalletConnect();
     if ($('privacyTab')?.style.display !== 'none') { updatePPBalance(); updatePPButton(); }
     if ($('sendTab')?.style.display !== 'none') { sendUpdateBalance(); sendUpdateButton(); sendLoadTimelocks(); }
     if ($('ppwRecipient')) ppwUpdateRecipientHint();
@@ -8720,6 +9109,7 @@ walletInit({
     }
   }],
   onDisconnect: [() => {
+    tbDisconnect();
     setText('swapBtn', 'Connect Wallet');
     setDisabled('swapBtn', false);
     setText('fromBalance', 'Balance: --');
@@ -10267,6 +10657,7 @@ function switchTab(tab) {
   if (fwEl && fwEl.innerHTML) fwEl.style.display = tab === 'swap' ? '' : 'none';
   const pmEl = $('featuredPmSection');
   if (pmEl && pmEl.innerHTML) pmEl.style.display = tab === 'swap' ? '' : 'none';
+  if (typeof tbSyncVisibility === 'function') tbSyncVisibility();
   $('privacyTab').style.display = tab === 'privacy' ? '' : 'none';
   $('coinTab').style.display = tab === 'coin' ? '' : 'none';
   $('sendTab').style.display = tab === 'send' ? '' : 'none';

@@ -3563,9 +3563,11 @@ async function handleAmountChange() {
               simEl.textContent = 'Sim inconclusive';
               simEl.className = 'sim-warn';
             }
-            // Fire non-blocking Tenderly simulation for aggregator routes
-            if (quote.multicall && _connectedAddress) {
-              _fireTenderlySimulation(_connectedAddress, ZROUTER_ADDRESS, quote.multicall, String(quote.msgValue || '0'), _aggSeq);
+            // Fire non-blocking Tenderly simulation for aggregator routes (use the built aggregator multicall, not the on-chain fallback)
+            const _tlyData = aggSim._builtMulticall || quote.multicall;
+            const _tlyValue = aggSim._builtMsgValue != null ? String(aggSim._builtMsgValue) : String(quote.msgValue || '0');
+            if (_tlyData && _connectedAddress) {
+              _fireTenderlySimulation(_connectedAddress, ZROUTER_ADDRESS, _tlyData, _tlyValue, _aggSeq);
             }
           }).catch(() => setShown('simRow', false));
       } else {
@@ -4913,32 +4915,19 @@ async function _simulateRoute(provider, multicall, msgValue, calls, isSplit) {
 }
 
 // ---- Aggregator simulation: build snwap from firm quote and simulate ----
-const _AGG_CONFIG = {
-  is0x:        { addr: MATCHA_ADDRESS,      iface: MATCHA_IFACE,      tx: q => q?.transaction },
-  isParaswap:  { addr: PARASOL_ADDRESS,     iface: PARASOL_IFACE,     tx: q => ({ to: q?.to, data: q?.data }) },
-  isKyber:     { addr: KYBEROL_ADDRESS,     iface: KYBEROL_IFACE,     tx: q => ({ to: q?.routerAddress, data: q?.data }) },
-  is1inch:     { addr: ONEINCHOL_ADDRESS,   iface: ONEINCHOL_IFACE,   tx: q => q?.tx },
-  isOdos:      { addr: ODOSOL_ADDRESS,      iface: ODOSOL_IFACE,      tx: q => q?.transaction },
-  isOkx:       { addr: OKXOL_ADDRESS,       iface: OKXOL_IFACE,       tx: q => q?.tx },
-  isBitget:    { addr: BITGETOL_ADDRESS,   iface: BITGETOL_IFACE,   tx: q => q?.tx },
-  isBebop:     { addr: BEBOPOL_ADDRESS,     iface: BEBOPOL_IFACE,     tx: q => q?.tx },
-  isEnso:      { addr: ENSOL_ADDRESS,       iface: ENSOL_IFACE,       tx: q => q?.tx },
-  isOpenOcean: { addr: OPENOCEANOL_ADDRESS, iface: OPENOCEANOL_IFACE, tx: q => q?.tx },
-};
-
 function _buildAggregatorSnwap(firmQuote, quote, fromAddr, toAddr, amountIn, receiver) {
-  for (const [flag, cfg] of Object.entries(_AGG_CONFIG)) {
-    if (!quote[flag]) continue;
-    const txInfo = cfg.tx(firmQuote);
+  for (const def of _AGG_DEFS) {
+    if (!quote[def.flag]) continue;
+    const txInfo = def.tx(firmQuote);
     if (!txInfo?.to || !txInfo?.data) return null;
-    const adapterData = cfg.iface.encodeFunctionData('swap', [
+    const adapterData = def.iface.encodeFunctionData('swap', [
       txInfo.to, fromAddr, toAddr, receiver, txInfo.data,
     ]);
     const isEthIn = fromAddr === ZERO_ADDRESS;
     const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
       fromAddr, isEthIn ? 0n : amountIn, receiver, toAddr,
       1n, // minBuy=1 for sim — we decode actual output ourselves
-      cfg.addr, adapterData,
+      def.addr, adapterData,
     ]);
     const multicall = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
     return { multicall, calls: [snwapCall], msgValue: isEthIn ? amountIn : 0n };
@@ -4960,6 +4949,9 @@ async function _simulateAggregator(quote, fromAddr, toAddr, amountIn, receiver) 
       const drift = Number(quote.expectedOutput - sim.simOutput) * 100 / Number(quote.expectedOutput);
       sim.drift = drift;
     }
+    // Attach built calldata so callers can fire Tenderly sim with the correct route
+    sim._builtMulticall = built.multicall;
+    sim._builtMsgValue = built.msgValue;
     return sim;
   } catch (_) { return null; }
 }
@@ -5508,11 +5500,7 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     const [oxPrice, psPrice, ksPrice, cowPrice, inchPrice, odosPrice, okxPrice, bitgetPrice, bebopPrice, ensoPrice, ooPrice] = await Promise.all([ox0xPriceP, psPriceP, ksPriceP, cowPriceP, inchPriceP, odosPriceP, okxPriceP, bitgetPriceP, bebopPriceP, ensoPriceP, ooPriceP]);
 
     // Helper to reset all external aggregator winner flags
-    function _resetExtFlags(r) {
-      r.is0x = false; r.isParaswap = false; r.isKyber = false; r.isCow = false;
-      r.is1inch = false; r.isOdos = false; r.isOkx = false; r.isBitget = false;
-      r.isBebop = false; r.isEnso = false; r.isOpenOcean = false;
-    }
+    // _resetExtFlags is defined globally alongside _AGG_DEFS
     function _setExtWinner(r, flag, sourceA, extra) {
       _resetExtFlags(r);
       r[flag] = true;
@@ -5656,42 +5644,15 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     // Speculatively prefetch firm quote for winning external aggregator
     const _slippage = readSlippage();
     result._firmSlippage = _slippage;
-    if (result.is0x) {
-      result._firmQuoteP = cachedFetch(`0x-firm:${_cacheKey}:${_slippage}`,
-        () => get0xQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
-    } else if (result.isParaswap) {
-      result._firmQuoteP = cachedFetch(`ps-firm:${_cacheKey}:${_slippage}`,
-        () => getParaswapQuote(result.psPriceRoute, fromData.address, toData.address, _slippage)).catch(() => null);
-    } else if (result.isKyber) {
-      result._firmQuoteP = cachedFetch(`ks-firm:${_cacheKey}:${_slippage}`,
-        () => getKyberQuote(result.ksRouteSummary, _slippage)).catch(() => null);
-    } else if (result.is1inch) {
-      result._firmQuoteP = cachedFetch(`inch-firm:${_cacheKey}:${_slippage}`,
-        () => get1inchQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
-    } else if (result.isOdos) {
-      result._firmQuoteP = cachedFetch(`odos-firm:${_cacheKey}:${_slippage}`,
-        () => getOdosQuote(result.odosPathId, _slippage)).catch(() => null);
-    } else if (result.isOkx) {
-      result._firmQuoteP = cachedFetch(`okx-firm:${_cacheKey}:${_slippage}`,
-        () => getOkxQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
-    } else if (result.isBitget) {
-      result._firmQuoteP = cachedFetch(`bitget-firm:${_cacheKey}:${_slippage}`,
-        () => getBitgetQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
-    } else if (result.isBebop) {
-      result._firmQuoteP = cachedFetch(`bebop-firm:${_cacheKey}:${_slippage}`,
-        () => getBebopQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
-    } else if (result.isEnso) {
-      result._firmQuoteP = cachedFetch(`enso-firm:${_cacheKey}:${_slippage}`,
-        () => getEnsoQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
-    } else if (result.isOpenOcean) {
-      result._firmQuoteP = cachedFetch(`oo-firm:${_cacheKey}:${_slippage}`,
-        () => getOpenOceanQuote(fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
+    for (const def of _AGG_DEFS) {
+      if (!result[def.flag]) continue;
+      result._firmQuoteP = cachedFetch(`${def.ck}-firm:${_cacheKey}:${_slippage}`,
+        () => def.fetch(result, fromData.address, toData.address, amountIn, _slippage)).catch(() => null);
+      break;
     }
 
     // Await simulation result (fired in parallel with external APIs above)
-    const isOnChainWinner = !result.is0x && !result.isParaswap && !result.isKyber
-      && !result.isCow && !result.is1inch && !result.isOdos && !result.isOkx && !result.isBitget
-      && !result.isBebop && !result.isEnso && !result.isOpenOcean;
+    const isOnChainWinner = !_isAggWinner(result) && !result.isCow;
     try {
       const sim = await _simP;
       if (isOnChainWinner) {
@@ -6133,10 +6094,7 @@ function _selectRoute(idx) {
   // External aggregator route (sourceId < 0, has _winnerArgs)
   if (picked._winnerArgs) {
     const [flag, sourceA, extra] = picked._winnerArgs;
-    // Reset all ext flags
-    q.is0x = false; q.isParaswap = false; q.isKyber = false; q.isCow = false;
-    q.is1inch = false; q.isOdos = false; q.isOkx = false; q.isBitget = false;
-    q.isBebop = false; q.isEnso = false; q.isOpenOcean = false;
+    _resetExtFlags(q);
     q[flag] = true;
     q.sourceA = sourceA; q.sourceB = null;
     q.isTwoHop = false; q.isSplit = false; q.splitLegs = null;
@@ -6144,9 +6102,7 @@ function _selectRoute(idx) {
     q.expectedOutput = picked.amountOut;
   } else if (q._onChainState) {
     // On-chain route: restore snapshot
-    q.is0x = false; q.isParaswap = false; q.isKyber = false; q.isCow = false;
-    q.is1inch = false; q.isOdos = false; q.isOkx = false; q.isBitget = false;
-    q.isBebop = false; q.isEnso = false; q.isOpenOcean = false;
+    _resetExtFlags(q);
     Object.assign(q, q._onChainState);
     // Note: on-chain route selection beyond "best on-chain" isn't supported
     // since the multicall was built for the best on-chain route. We restore
@@ -6163,6 +6119,8 @@ function _selectRoute(idx) {
   // Clear sim state — route changed, previous sim no longer applies
   q._sim = undefined;
   q._simFallback = undefined;
+  const tlyEl = $('tenderlyLink');
+  if (tlyEl) tlyEl.style.display = 'none';
 
   // Re-render UI
   const toSym = toToken;
@@ -6211,21 +6169,9 @@ function _selectRoute(idx) {
     const slippage = readSlippage();
     // Identify which aggregator and fetch its firm quote
     const [flag] = picked._winnerArgs;
-    const _firmFetchers = {
-      is0x:        () => get0xQuote(fromData.address, toData.address, amountIn, slippage),
-      isParaswap:  () => getParaswapQuote(q.psPriceRoute, fromData.address, toData.address, slippage),
-      isKyber:     () => getKyberQuote(q.ksRouteSummary, slippage),
-      is1inch:     () => get1inchQuote(fromData.address, toData.address, amountIn, slippage),
-      isOdos:      () => getOdosQuote(q.odosPathId, slippage),
-      isOkx:       () => getOkxQuote(fromData.address, toData.address, amountIn, slippage),
-      isBitget:    () => getBitgetQuote(fromData.address, toData.address, amountIn, slippage),
-      isBebop:     () => getBebopQuote(fromData.address, toData.address, amountIn, slippage),
-      isEnso:      () => getEnsoQuote(fromData.address, toData.address, amountIn, slippage),
-      isOpenOcean: () => getOpenOceanQuote(fromData.address, toData.address, amountIn, slippage),
-    };
-    const fetcher = _firmFetchers[flag];
-    if (fetcher) {
-      q._firmQuoteP = fetcher().catch(() => null);
+    const _aggDef = _AGG_DEFS.find(d => d.flag === flag);
+    if (_aggDef) {
+      q._firmQuoteP = _aggDef.fetch(q, fromData.address, toData.address, amountIn, slippage).catch(() => null);
       _simulateAggregator(q, fromData.address, toData.address, amountIn, receiver)
         .then(aggSim => {
           if (_selSeq !== _quoteSeq || q._manualIdx !== _selIdx || !aggSim) {
@@ -6246,6 +6192,12 @@ function _selectRoute(idx) {
           } else {
             simEl.textContent = 'Sim inconclusive';
             simEl.className = 'sim-warn';
+          }
+          // Fire Tenderly simulation with the aggregator's built multicall
+          const _tlyData = aggSim._builtMulticall;
+          const _tlyValue = aggSim._builtMsgValue != null ? String(aggSim._builtMsgValue) : '0';
+          if (_tlyData && _connectedAddress) {
+            _fireTenderlySimulation(_connectedAddress, ZROUTER_ADDRESS, _tlyData, _tlyValue, _selSeq);
           }
         }).catch(() => setShown('simRow', false));
     } else {
@@ -6288,6 +6240,10 @@ function _selectRoute(idx) {
             setText(swapBtn, "Swap would revert — try another route");
             setDisabled(swapBtn, true);
           }
+        }
+        // Fire Tenderly simulation for manually-selected on-chain route
+        if (st.multicall && _connectedAddress) {
+          _fireTenderlySimulation(_connectedAddress, ZROUTER_ADDRESS, st.multicall, String(st.msgValue || '0'), _selSeq);
         }
       }).catch(() => setShown('simRow', false));
   } else {
@@ -6498,16 +6454,20 @@ function requestQuote(amtStr, fromSnap, toSnap, exactOut = false) {
   return _quoteLock;
 }
 
-// ---- Aggregator snwap builder (shared by approval-flow and sim-retry) ----
-// Each entry describes how to fetch a firm quote and build the snwap call for one aggregator.
+// ---- Aggregator descriptor table (single source of truth) ----
+// Used by: snwap builder, firm-quote prefetch, simulation, flag reset, isAggSwap checks.
+// Each entry: flag, ck (cache key prefix), addr (OL address), iface, tx (firm quote → {to,data}),
+//   fetch (get firm quote), ok (validate response), build (encode snwap params).
 const _AGG_DEFS = [
-  { flag: 'is0x',
+  { flag: 'is0x', ck: '0x', addr: MATCHA_ADDRESS, iface: MATCHA_IFACE,
+    tx: r => r?.transaction,
     fetch: (_q, f, t, a, s) => get0xQuote(f, t, a, s),
     ok: r => r && r.transaction,
     build: (r, _q, f, t, rv, _s) => ({
       olData: MATCHA_IFACE.encodeFunctionData('swap', [r.transaction.to, f, t, rv, r.transaction.data]),
       minBuy: BigInt(r.minBuyAmount), olAddr: MATCHA_ADDRESS }) },
-  { flag: 'isParaswap',
+  { flag: 'isParaswap', ck: 'ps', addr: PARASOL_ADDRESS, iface: PARASOL_IFACE,
+    tx: r => ({ to: r?.to, data: r?.data }),
     fetch: (q, f, t, _a, s) => getParaswapQuote(q.psPriceRoute, f, t, q.exactOut ? 0 : s),
     ok: r => r && r.data,
     build: (r, q, f, t, rv, s) => {
@@ -6516,56 +6476,64 @@ const _AGG_DEFS = [
         : BigInt(q.psPriceRoute.destAmount) * (10000n - BigInt(s)) / 10000n;
       return { olData: PARASOL_IFACE.encodeFunctionData('swap', [r.to, f, t, rv, r.data]),
         minBuy, olAddr: PARASOL_ADDRESS, overrideAmtIn }; } },
-  { flag: 'isKyber',
+  { flag: 'isKyber', ck: 'ks', addr: KYBEROL_ADDRESS, iface: KYBEROL_IFACE,
+    tx: r => ({ to: r?.routerAddress, data: r?.data }),
     fetch: (q, _f, _t, _a, s) => getKyberQuote(q.ksRouteSummary, s),
     ok: r => r && r.data,
     build: (r, q, f, t, rv, s) => ({
       olData: KYBEROL_IFACE.encodeFunctionData('swap', [r.routerAddress, f, t, rv, r.data]),
       minBuy: BigInt(q.ksRouteSummary.amountOut) * (10000n - BigInt(s)) / 10000n,
       olAddr: KYBEROL_ADDRESS }) },
-  { flag: 'is1inch',
+  { flag: 'is1inch', ck: 'inch', addr: ONEINCHOL_ADDRESS, iface: ONEINCHOL_IFACE,
+    tx: r => r?.tx,
     fetch: (_q, f, t, a, s) => get1inchQuote(f, t, a, s),
     ok: r => r && r.tx,
     build: (r, _q, f, t, rv, s) => ({
       olData: ONEINCHOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
       minBuy: BigInt(r.dstAmount) * (10000n - BigInt(s)) / 10000n,
       olAddr: ONEINCHOL_ADDRESS }) },
-  { flag: 'isOdos',
+  { flag: 'isOdos', ck: 'odos', addr: ODOSOL_ADDRESS, iface: ODOSOL_IFACE,
+    tx: r => r?.transaction,
     fetch: (q, _f, _t, _a, s) => getOdosQuote(q.odosPathId, s),
     ok: r => r && r.transaction,
     build: (r, q, f, t, rv, s) => ({
       olData: ODOSOL_IFACE.encodeFunctionData('swap', [r.transaction.to, f, t, rv, r.transaction.data]),
       minBuy: (q.odosOutAmount || 0n) * (10000n - BigInt(s)) / 10000n,
       olAddr: ODOSOL_ADDRESS }) },
-  { flag: 'isOkx',
+  { flag: 'isOkx', ck: 'okx', addr: OKXOL_ADDRESS, iface: OKXOL_IFACE,
+    tx: r => r?.tx,
     fetch: (_q, f, t, a, s) => getOkxQuote(f, t, a, s),
     ok: r => r && r.tx,
     build: (r, q, f, t, rv, s) => ({
       olData: OKXOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
       minBuy: (q.okxOutAmount || BigInt(r.routerResult?.toTokenAmount || '0')) * (10000n - BigInt(s)) / 10000n,
       olAddr: OKXOL_ADDRESS }) },
-  { flag: 'isBitget',
+  { flag: 'isBitget', ck: 'bitget', addr: BITGETOL_ADDRESS, iface: BITGETOL_IFACE,
+    tx: r => r?.tx,
     fetch: (_q, f, t, a, s) => getBitgetQuote(f, t, a, s),
     ok: r => r && r.tx,
     build: (r, q, f, t, rv, s) => ({
       olData: BITGETOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
       minBuy: (q.bitgetOutAmount || BigInt(r.toAmount || '0')) * (10000n - BigInt(s)) / 10000n,
       olAddr: BITGETOL_ADDRESS }) },
-  { flag: 'isBebop',
+  { flag: 'isBebop', ck: 'bebop', addr: BEBOPOL_ADDRESS, iface: BEBOPOL_IFACE,
+    tx: r => r?.tx,
     fetch: (_q, f, t, a, s) => getBebopQuote(f, t, a, s),
     ok: r => r && r.tx,
     build: (r, q, f, t, rv, s) => ({
       olData: BEBOPOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
       minBuy: (q.bebopOutAmount || BigInt(r.buyAmount || '0')) * (10000n - BigInt(s)) / 10000n,
       olAddr: BEBOPOL_ADDRESS }) },
-  { flag: 'isEnso',
+  { flag: 'isEnso', ck: 'enso', addr: ENSOL_ADDRESS, iface: ENSOL_IFACE,
+    tx: r => r?.tx,
     fetch: (_q, f, t, a, s) => getEnsoQuote(f, t, a, s),
     ok: r => r && r.tx,
     build: (r, q, f, t, rv, s) => ({
       olData: ENSOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
       minBuy: (q.ensoOutAmount || BigInt(r.amountOut || '0')) * (10000n - BigInt(s)) / 10000n,
       olAddr: ENSOL_ADDRESS }) },
-  { flag: 'isOpenOcean',
+  { flag: 'isOpenOcean', ck: 'oo', addr: OPENOCEANOL_ADDRESS, iface: OPENOCEANOL_IFACE,
+    tx: r => r?.tx,
     fetch: (_q, f, t, a, s) => getOpenOceanQuote(f, t, a, s),
     ok: r => r && r.tx,
     build: (r, q, f, t, rv, s) => ({
@@ -6573,6 +6541,10 @@ const _AGG_DEFS = [
       minBuy: (q.ooOutAmount || BigInt(r.outAmount || '0')) * (10000n - BigInt(s)) / 10000n,
       olAddr: OPENOCEANOL_ADDRESS }) },
 ];
+
+// Helpers derived from _AGG_DEFS
+function _isAggWinner(q) { return _AGG_DEFS.some(d => q[d.flag]); }
+function _resetExtFlags(r) { for (const d of _AGG_DEFS) r[d.flag] = false; r.isCow = false; }
 
 // Fetch a fresh firm quote for the winning aggregator and build the snwap call.
 // q: quote object with aggregator flags (is0x, isParaswap, etc.) and associated data
@@ -7521,7 +7493,7 @@ async function executeSwap() {
             let permitInnerCalls = quote.calls || decodeMulticallCalls(quote.multicall);
             // For aggregator swaps, re-fetch firm quote after signing (user may have
             // spent time in wallet popup, expiring the baked-in aggregator calldata).
-            const isAggQuote = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx || quote.isBitget || quote.isBebop || quote.isEnso || quote.isOpenOcean;
+            const isAggQuote = _isAggWinner(quote);
             if (isAggQuote) {
               try {
                 const toData = tokens[toSnap];
@@ -7687,7 +7659,7 @@ async function executeSwap() {
           }
           // For aggregator swaps, permit2 path needs +1 wei (snwap keeps 1 wei in router).
           // Skip permit2 for full-balance swaps where the user can't spare the extra wei.
-          const isAggSnwap = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx || quote.isBitget || quote.isBebop || quote.isEnso || quote.isOpenOcean || quote.isCow;
+          const isAggSnwap = _isAggWinner(quote) || quote.isCow;
           const canPermit2 = p2Allowance >= amountIn && (!isAggSnwap || tokenBal > amountIn);
           if (canPermit2) {
             try {
@@ -8202,7 +8174,7 @@ async function executeSwap() {
     let txValue = quote.msgValue ?? 0n;
 
     // Pre-flight simulation: dry-run the tx to catch reverts before the user signs
-    const isAggSwap = quote.is0x || quote.isParaswap || quote.isKyber || quote.is1inch || quote.isOdos || quote.isOkx || quote.isBitget || quote.isBebop || quote.isEnso || quote.isOpenOcean;
+    const isAggSwap = _isAggWinner(quote);
     const maxSimRetries = isAggSwap ? 3 : 1;
     let estimatedGas = null;
     for (let simTry = 0; simTry < maxSimRetries; simTry++) {
@@ -8261,6 +8233,7 @@ async function executeSwap() {
               } else {
                 txData = ROUTER_IFACE.encodeFunctionData('multicall', [[freshCall]]);
               }
+              txValue = aggResult.msgValue;
             }
             continue; // retry simulation with fresh txData
           } catch (retryErr) {

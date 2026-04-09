@@ -1098,13 +1098,15 @@ export default {
         const simId = sim.simulation?.id;
         if (!simId) return jsonResponse({ error: 'No simulation ID returned' }, 502);
         // Make the simulation publicly shareable
-        await fetch(
+        const shareRes = await fetch(
           `https://api.tenderly.co/api/v1/account/${acct}/project/${proj}/simulations/${simId}/share`,
-          { method: 'POST', headers: { 'X-Access-Key': env.TENDERLY_ACCESS_TOKEN } }
+          { method: 'POST', headers: { 'X-Access-Key': env.TENDERLY_ACCESS_TOKEN, 'Content-Type': 'application/json' }, body: '{}' }
         );
+        const shared = shareRes.ok;
+        if (!shared) console.warn('Tenderly share failed:', shareRes.status, await shareRes.text().catch(() => ''));
         return jsonResponse({
           id: simId,
-          url: `https://www.tdly.co/shared/simulation/${simId}`,
+          url: shared ? `https://www.tdly.co/shared/simulation/${simId}` : null,
           status: sim.simulation?.status,
         });
       } catch (e) {

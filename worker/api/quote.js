@@ -988,7 +988,7 @@ async function getQuote(params, env) {
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 }
@@ -1057,6 +1057,49 @@ export default {
       try {
         const result = await getQuote({ tokenIn, tokenOut, amount: amountBn, to, slippage, exactOut }, env);
         return jsonResponse(result);
+      } catch (e) {
+        return jsonResponse({ error: e.message }, 502);
+      }
+    }
+
+    // POST /simulate — run Tenderly simulation, return shareable link
+    if (url.pathname === '/simulate') {
+      if (request.method !== 'POST') return jsonResponse({ error: 'POST only' }, 405);
+      if (!env.TENDERLY_ACCESS_TOKEN) return jsonResponse({ error: 'Tenderly not configured' }, 503);
+      let body;
+      try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON body' }, 400); }
+      const { from, to, data, value } = body;
+      if (!from || !to || !data) return jsonResponse({ error: 'Missing from, to, or data' }, 400);
+      try {
+        const simRes = await fetch(
+          `https://api.tenderly.co/api/v1/account/${env.TENDERLY_ACCOUNT || 'z0r0zzz'}/project/${env.TENDERLY_PROJECT || 'project'}/simulate`,
+          {
+            method: 'POST',
+            headers: { 'X-Access-Key': env.TENDERLY_ACCESS_TOKEN, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              network_id: '1',
+              from,
+              to,
+              input: data,
+              value: String(value || '0'),
+              save: true,
+              save_if_fails: true,
+              simulation_type: 'full',
+            }),
+          }
+        );
+        if (!simRes.ok) {
+          const err = await simRes.text();
+          return jsonResponse({ error: 'Tenderly API error', detail: err }, 502);
+        }
+        const sim = await simRes.json();
+        const simId = sim.simulation?.id;
+        if (!simId) return jsonResponse({ error: 'No simulation ID returned' }, 502);
+        return jsonResponse({
+          id: simId,
+          url: `https://www.tdly.co/shared/simulation/${simId}`,
+          status: sim.simulation?.status,
+        });
       } catch (e) {
         return jsonResponse({ error: e.message }, 502);
       }

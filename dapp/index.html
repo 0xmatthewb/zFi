@@ -1129,7 +1129,7 @@ body.modal-open { overflow: hidden; }
     <span>Impact:</span><span id="impactInfo">--</span>
   </div>
   <div class="quote-row" id="simRow" style="display:none">
-    <span>Simulation:</span><span id="simInfo">--</span>
+    <span>Simulation:</span><span id="simInfo">--</span><a id="tenderlyLink" href="#" target="_blank" rel="noopener" title="View on Tenderly" style="display:none;margin-left:5px;opacity:0.6;transition:opacity 0.15s;line-height:1" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'"><svg width="14" height="14" viewBox="0 0 971.9 971.9" style="vertical-align:-2px"><path fill="#9273ff" d="M707.7,289.79l264.19-148.48v283.2l-203.49,115.02c-138.77,78.52-199.44,169.77-231.43,259.83-31.98,90.03-47.62,172.54-47.62,172.54v-301.2c.51-86.24,40.53-280.29,218.35-380.9Z"/><path fill="#6837ee" d="M489.35,670.69v301.2l-247.73-138.29v-233.33c-.07-159.15-49.74-256.8-112.52-328.96C66.35,199.17,0,143.65,0,143.65l262.62,151.65c74.96,42.96,226.64,171.44,226.73,375.39Z"/><path fill="#cfc0ff" d="M262.62,295.3L0,143.65,244.64,0l201.96,117.68c137.79,80.21,247.36,86.67,341.48,68.99,94.09-17.68,183.82-45.36,183.82-45.36l-264.19,148.48c-74.99,42.91-268.51,108.3-445.09,5.51Z"/></svg></a>
   </div>
   <div class="quote-row" id="slippageRow">
     <span>Slippage:</span>
@@ -3498,6 +3498,8 @@ async function handleAmountChange() {
 
     // Simulation status display
     const simEl = $('simInfo');
+    const tlyEl = $('tenderlyLink');
+    if (tlyEl) tlyEl.style.display = 'none';
     const sim = quote._sim;
     let _simBlocked = false;
     if (sim && !isDirectPath) {
@@ -3520,6 +3522,10 @@ async function handleAmountChange() {
         simEl.textContent = 'Route would revert';
         simEl.className = 'sim-fail';
         _simBlocked = true;
+      }
+      // Fire non-blocking Tenderly simulation for on-chain routes
+      if (quote.multicall && _connectedAddress) {
+        _fireTenderlySimulation(_connectedAddress, ZROUTER_ADDRESS, quote.multicall, String(quote.msgValue || '0'), seq);
       }
     } else if (sim && isDirectPath) {
       setShown('simRow', false);
@@ -3556,6 +3562,10 @@ async function handleAmountChange() {
               // fresh calldata, so a sim revert here is not reliable.
               simEl.textContent = 'Sim inconclusive';
               simEl.className = 'sim-warn';
+            }
+            // Fire non-blocking Tenderly simulation for aggregator routes
+            if (quote.multicall && _connectedAddress) {
+              _fireTenderlySimulation(_connectedAddress, ZROUTER_ADDRESS, quote.multicall, String(quote.msgValue || '0'), _aggSeq);
             }
           }).catch(() => setShown('simRow', false));
       } else {
@@ -4952,6 +4962,24 @@ async function _simulateAggregator(quote, fromAddr, toAddr, amountIn, receiver) 
     }
     return sim;
   } catch (_) { return null; }
+}
+
+// Fire-and-forget Tenderly simulation — non-blocking, just updates the icon link
+function _fireTenderlySimulation(from, to, data, value, seq) {
+  const el = $('tenderlyLink');
+  if (!el) return;
+  el.style.display = 'none';
+  fetch('https://api.zfi.wei.is/simulate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to, data, value: String(value || '0') }),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (seq !== _quoteSeq) return;
+      if (d.url) { el.href = d.url; el.style.display = ''; }
+    })
+    .catch(() => {});
 }
 
 async function getQuote(fromAmountStr, fromSym, toSym) {
@@ -13909,7 +13937,7 @@ function coinPredict(initHolders, initShares, salt) {
 
 function coinShowStatus(msg, isError) {
   const el = $('coinStatus');
-  const cls = isError ? 'status-message error' : msg.includes('Launch') ? 'status-message success' : 'status-message';
+  const cls = isError ? 'status-message error' : msg.includes('Launched') ? 'status-message success' : 'status-message';
   const spinner = msg.includes('...') && !isError && !msg.includes('Launch') ? zfiLoadingSVG(14) : '';
   el.innerHTML = `<div class="${cls}">${spinner}${msg}</div>`;
 }

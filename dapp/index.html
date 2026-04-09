@@ -1738,10 +1738,10 @@ async function searchDaicoCoins() {
       try {
         let url = g.contractURI;
         if (url.startsWith('ipfs://')) url = DAICO_IPFS_GW + url.slice(7);
-        else if (url.startsWith('data:')) { const j = url.split(',').slice(1).join(','); const m = JSON.parse(decodeURIComponent(j)); if (m.image) { g.icon = m.image.startsWith('ipfs://') ? DAICO_IPFS_GW + m.image.slice(7) : m.image; } return; }
+        else if (url.startsWith('data:')) { const j = url.split(',').slice(1).join(','); const m = JSON.parse(decodeURIComponent(j)); if (m.image) { const _img = m.image.startsWith('ipfs://') ? DAICO_IPFS_GW + m.image.slice(7) : m.image; if (_img.startsWith('https://') || _img.startsWith('data:image/')) g.icon = _img; } return; }
         const res = await fetch(url);
         const m = await res.json();
-        if (m.image) g.icon = m.image.startsWith('ipfs://') ? DAICO_IPFS_GW + m.image.slice(7) : m.image;
+        if (m.image) { const _img = m.image.startsWith('ipfs://') ? DAICO_IPFS_GW + m.image.slice(7) : m.image; if (_img.startsWith('https://') || _img.startsWith('data:image/')) g.icon = _img; }
       } catch {}
     });
     await Promise.allSettled(metaPromises);
@@ -1790,13 +1790,13 @@ async function loadLiveSale() {
         else if (url.startsWith('data:')) {
           const j = url.split(',').slice(1).join(',');
           const m = JSON.parse(decodeURIComponent(j));
-          if (m.image) s.icon = m.image.startsWith('ipfs://') ? DAICO_IPFS_GW + m.image.slice(7) : m.image;
+          if (m.image) { const _img = m.image.startsWith('ipfs://') ? DAICO_IPFS_GW + m.image.slice(7) : m.image; if (_img.startsWith('https://') || _img.startsWith('data:image/')) s.icon = _img; }
           if (m.name) s.name = m.name;
         }
         if (!s.icon) {
           const res = await fetch(url);
           const m = await res.json();
-          if (m.image) s.icon = m.image.startsWith('ipfs://') ? DAICO_IPFS_GW + m.image.slice(7) : m.image;
+          if (m.image) { const _img = m.image.startsWith('ipfs://') ? DAICO_IPFS_GW + m.image.slice(7) : m.image; if (_img.startsWith('https://') || _img.startsWith('data:image/')) s.icon = _img; }
           if (m.name) s.name = m.name;
         }
       } catch {}
@@ -1804,7 +1804,7 @@ async function loadLiveSale() {
     const el = $('liveSalesSection');
     if (!el) return;
     const logo = s.icon
-      ? `<img class="live-sale-logo" src="${esc(s.icon)}" alt="" onerror="this.outerHTML='<div class=\\'live-sale-logo-ph\\'>${esc(s.symbol?.[0]||'?')}</div>'">`
+      ? `<img class="live-sale-logo" src="${escAttr(s.icon)}" alt="" onerror="this.outerHTML='<div class=\\'live-sale-logo-ph\\'>${escAttr(s.symbol?.[0]||'?')}</div>'">`
       : `<div class="live-sale-logo-ph">${esc(s.symbol?.[0] || '?')}</div>`;
     const displayName = s.name && s.name.length > 1 ? s.name : s.symbol || '???';
     const ethFmt = s.raisedETH >= 1 ? s.raisedETH.toFixed(1) : s.raisedETH >= 0.01 ? s.raisedETH.toFixed(2) : s.raisedETH.toFixed(3);
@@ -6498,6 +6498,105 @@ function requestQuote(amtStr, fromSnap, toSnap, exactOut = false) {
   return _quoteLock;
 }
 
+// ---- Aggregator snwap builder (shared by approval-flow and sim-retry) ----
+// Each entry describes how to fetch a firm quote and build the snwap call for one aggregator.
+const _AGG_DEFS = [
+  { flag: 'is0x',
+    fetch: (_q, f, t, a, s) => get0xQuote(f, t, a, s),
+    ok: r => r && r.transaction,
+    build: (r, _q, f, t, rv, _s) => ({
+      olData: MATCHA_IFACE.encodeFunctionData('swap', [r.transaction.to, f, t, rv, r.transaction.data]),
+      minBuy: BigInt(r.minBuyAmount), olAddr: MATCHA_ADDRESS }) },
+  { flag: 'isParaswap',
+    fetch: (q, f, t, _a, s) => getParaswapQuote(q.psPriceRoute, f, t, q.exactOut ? 0 : s),
+    ok: r => r && r.data,
+    build: (r, q, f, t, rv, s) => {
+      const overrideAmtIn = q.exactOut ? BigInt(q.psPriceRoute.srcAmount) : undefined;
+      const minBuy = q.exactOut ? BigInt(q.psPriceRoute.destAmount)
+        : BigInt(q.psPriceRoute.destAmount) * (10000n - BigInt(s)) / 10000n;
+      return { olData: PARASOL_IFACE.encodeFunctionData('swap', [r.to, f, t, rv, r.data]),
+        minBuy, olAddr: PARASOL_ADDRESS, overrideAmtIn }; } },
+  { flag: 'isKyber',
+    fetch: (q, _f, _t, _a, s) => getKyberQuote(q.ksRouteSummary, s),
+    ok: r => r && r.data,
+    build: (r, q, f, t, rv, s) => ({
+      olData: KYBEROL_IFACE.encodeFunctionData('swap', [r.routerAddress, f, t, rv, r.data]),
+      minBuy: BigInt(q.ksRouteSummary.amountOut) * (10000n - BigInt(s)) / 10000n,
+      olAddr: KYBEROL_ADDRESS }) },
+  { flag: 'is1inch',
+    fetch: (_q, f, t, a, s) => get1inchQuote(f, t, a, s),
+    ok: r => r && r.tx,
+    build: (r, _q, f, t, rv, s) => ({
+      olData: ONEINCHOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
+      minBuy: BigInt(r.dstAmount) * (10000n - BigInt(s)) / 10000n,
+      olAddr: ONEINCHOL_ADDRESS }) },
+  { flag: 'isOdos',
+    fetch: (q, _f, _t, _a, s) => getOdosQuote(q.odosPathId, s),
+    ok: r => r && r.transaction,
+    build: (r, q, f, t, rv, s) => ({
+      olData: ODOSOL_IFACE.encodeFunctionData('swap', [r.transaction.to, f, t, rv, r.transaction.data]),
+      minBuy: (q.odosOutAmount || 0n) * (10000n - BigInt(s)) / 10000n,
+      olAddr: ODOSOL_ADDRESS }) },
+  { flag: 'isOkx',
+    fetch: (_q, f, t, a, s) => getOkxQuote(f, t, a, s),
+    ok: r => r && r.tx,
+    build: (r, q, f, t, rv, s) => ({
+      olData: OKXOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
+      minBuy: (q.okxOutAmount || BigInt(r.routerResult?.toTokenAmount || '0')) * (10000n - BigInt(s)) / 10000n,
+      olAddr: OKXOL_ADDRESS }) },
+  { flag: 'isBitget',
+    fetch: (_q, f, t, a, s) => getBitgetQuote(f, t, a, s),
+    ok: r => r && r.tx,
+    build: (r, q, f, t, rv, s) => ({
+      olData: BITGETOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
+      minBuy: (q.bitgetOutAmount || BigInt(r.toAmount || '0')) * (10000n - BigInt(s)) / 10000n,
+      olAddr: BITGETOL_ADDRESS }) },
+  { flag: 'isBebop',
+    fetch: (_q, f, t, a, s) => getBebopQuote(f, t, a, s),
+    ok: r => r && r.tx,
+    build: (r, q, f, t, rv, s) => ({
+      olData: BEBOPOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
+      minBuy: (q.bebopOutAmount || BigInt(r.buyAmount || '0')) * (10000n - BigInt(s)) / 10000n,
+      olAddr: BEBOPOL_ADDRESS }) },
+  { flag: 'isEnso',
+    fetch: (_q, f, t, a, s) => getEnsoQuote(f, t, a, s),
+    ok: r => r && r.tx,
+    build: (r, q, f, t, rv, s) => ({
+      olData: ENSOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
+      minBuy: (q.ensoOutAmount || BigInt(r.amountOut || '0')) * (10000n - BigInt(s)) / 10000n,
+      olAddr: ENSOL_ADDRESS }) },
+  { flag: 'isOpenOcean',
+    fetch: (_q, f, t, a, s) => getOpenOceanQuote(f, t, a, s),
+    ok: r => r && r.tx,
+    build: (r, q, f, t, rv, s) => ({
+      olData: OPENOCEANOL_IFACE.encodeFunctionData('swap', [r.tx.to, f, t, rv, r.tx.data]),
+      minBuy: (q.ooOutAmount || BigInt(r.outAmount || '0')) * (10000n - BigInt(s)) / 10000n,
+      olAddr: OPENOCEANOL_ADDRESS }) },
+];
+
+// Fetch a fresh firm quote for the winning aggregator and build the snwap call.
+// q: quote object with aggregator flags (is0x, isParaswap, etc.) and associated data
+// snwapAmtIn: explicit BigInt for snwap's amountIn param, or undefined to auto-compute
+// Returns { snwapCall, msgValue } or null if the aggregator firm quote failed.
+// Does NOT handle CoW Protocol (isCow) — that path has unique multi-call logic.
+async function _buildAggSnwapCall(q, fromAddr, toAddr, amountIn, snwapAmtIn, receiver, slippageBps) {
+  for (const def of _AGG_DEFS) {
+    if (!q[def.flag]) continue;
+    const r = await def.fetch(q, fromAddr, toAddr, amountIn, slippageBps);
+    if (!def.ok(r)) return null;
+    const { olData, minBuy, olAddr, overrideAmtIn } = def.build(r, q, fromAddr, toAddr, receiver, slippageBps);
+    const isEthIn = fromAddr === ZERO_ADDRESS;
+    const effectiveAmtIn = snwapAmtIn !== undefined ? snwapAmtIn
+      : overrideAmtIn != null ? (isEthIn ? 0n : overrideAmtIn) : (isEthIn ? 0n : amountIn);
+    const effectiveMsgValue = isEthIn ? (overrideAmtIn ?? amountIn) : 0n;
+    const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+      fromAddr, effectiveAmtIn, receiver, toAddr, minBuy, olAddr, olData,
+    ]);
+    return { snwapCall, msgValue: effectiveMsgValue };
+  }
+  return null;
+}
+
 // ---- Swap execution ----
 let _swapBusy = false;
 let _swapResetTimer = null;
@@ -6512,6 +6611,7 @@ async function executeSwap() {
   try {
     if (!_signer || !_connectedAddress) {
       connectWallet();
+      _swapBusy = false;
       return;
     }
 
@@ -6520,14 +6620,17 @@ async function executeSwap() {
     const amtNum = parseFloat(amtStr);
     if (!amtStr || !Number.isFinite(amtNum) || amtNum <= 0) {
       showStatus("Please enter an amount", "error");
+      _swapBusy = false;
       return;
     }
     if (isReceiverPending()) {
       showStatus("Receiver address is still resolving — please wait", "error");
+      _swapBusy = false;
       return;
     }
     if (fromToken === toToken && !_ppSwapEnabled) {
       showStatus("Select different tokens", "error");
+      _swapBusy = false;
       return;
     }
     // Direct deposit (no swap needed — from === to for the PP asset)
@@ -6537,16 +6640,19 @@ async function executeSwap() {
       $('ppAmount').value = amtStr;
       switchTab('privacy');
       updatePPButton();
+      _swapBusy = false;
       return;
     }
     const receiverRaw = ($("receiverAddress")?.value || "").trim();
     if (receiverRaw && !ethers.isAddress(receiverRaw)) {
       if (isReceiverPending()) {
         showStatus("Receiver name still resolving...", "error");
+        _swapBusy = false;
         return;
       }
       if (!_resolvedReceiver || _resolvedReceiver.input !== receiverRaw || !_resolvedReceiver.address) {
         showStatus("Could not resolve receiver name", "error");
+        _swapBusy = false;
         return;
       }
     }
@@ -6597,6 +6703,7 @@ async function executeSwap() {
     // WETH→ETH + PP: quoter can't route a pure unwrap — user should unwrap first
     if (_ppSwapEnabled && isWrapUnwrap(fromToken, toToken)) {
       showStatus("Unwrap WETH to ETH first, then deposit into Privacy Pools", "error");
+      _swapBusy = false;
       return;
     }
 
@@ -7847,231 +7954,42 @@ async function executeSwap() {
           const rc = await waitForTx(approveTx);
           if (rc.status === 0) throw new Error("Approval transaction failed");
           const fresh = _isExactOut ? await getExactOutQuote(amtStr, fromSnap, toSnap) : await getQuote(amtStr, fromSnap, toSnap);
-          // If 0x won the re-quote, rebuild the snwap multicall (getQuote only flags is0x)
-          if (fresh.is0x) {
-            const toData = tokens[toSnap];
-            const oxQ = await get0xQuote(fromData.address, toData.address, amountIn, slippageBps);
-            if (oxQ && oxQ.transaction) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const matchaData = MATCHA_IFACE.encodeFunctionData('swap', [
-                oxQ.transaction.to, fromData.address, toData.address, receiver, oxQ.transaction.data,
-              ]);
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
-                BigInt(oxQ.minBuyAmount), MATCHA_ADDRESS, matchaData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? amountIn : 0n;
-            } else {
-              txData = fresh.multicall;
-              quote.msgValue = fresh.msgValue;
-            }
-          } else if (fresh.isParaswap) {
-            const toData = tokens[toSnap];
-            const psBuildSlippage2 = fresh.exactOut ? 0 : slippageBps;
-            const psQ = await getParaswapQuote(fresh.psPriceRoute, fromData.address, toData.address, psBuildSlippage2);
-            if (psQ && psQ.data) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const parasolData = PARASOL_IFACE.encodeFunctionData('swap', [
-                psQ.to, fromData.address, toData.address, receiver, psQ.data,
-              ]);
-              const psAmountIn = fresh.exactOut ? BigInt(fresh.psPriceRoute.srcAmount) : amountIn;
-              const psMinBuy = fresh.exactOut
-                ? BigInt(fresh.psPriceRoute.destAmount)
-                : BigInt(fresh.psPriceRoute.destAmount) * (10000n - BigInt(slippageBps)) / 10000n;
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : psAmountIn, receiver, toData.address,
-                psMinBuy, PARASOL_ADDRESS, parasolData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? psAmountIn : 0n;
-            } else {
-              txData = fresh.multicall;
-              quote.msgValue = fresh.msgValue;
-            }
-          } else if (fresh.isKyber) {
-            const toData = tokens[toSnap];
-            const ksQ = await getKyberQuote(fresh.ksRouteSummary, slippageBps);
-            if (ksQ && ksQ.data) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const kyberolData = KYBEROL_IFACE.encodeFunctionData('swap', [
-                ksQ.routerAddress, fromData.address, toData.address, receiver, ksQ.data,
-              ]);
-              const ksMinBuy = BigInt(fresh.ksRouteSummary.amountOut) * (10000n - BigInt(slippageBps)) / 10000n;
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
-                ksMinBuy, KYBEROL_ADDRESS, kyberolData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? amountIn : 0n;
-            } else {
-              txData = fresh.multicall;
-              quote.msgValue = fresh.msgValue;
-            }
-          } else if (fresh.is1inch) {
-            const toData = tokens[toSnap];
-            const inchQ = await get1inchQuote(fromData.address, toData.address, amountIn, slippageBps);
-            if (inchQ && inchQ.tx) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const oneincholData = ONEINCHOL_IFACE.encodeFunctionData('swap', [
-                inchQ.tx.to, fromData.address, toData.address, receiver, inchQ.tx.data,
-              ]);
-              const inchMinBuy = BigInt(inchQ.dstAmount) * (10000n - BigInt(slippageBps)) / 10000n;
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
-                inchMinBuy, ONEINCHOL_ADDRESS, oneincholData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? amountIn : 0n;
-            } else {
-              txData = fresh.multicall;
-              quote.msgValue = fresh.msgValue;
-            }
-          } else if (fresh.isOdos) {
-            const toData = tokens[toSnap];
-            const odosQ = await getOdosQuote(fresh.odosPathId, slippageBps);
-            if (odosQ && odosQ.transaction) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const odosolData = ODOSOL_IFACE.encodeFunctionData('swap', [
-                odosQ.transaction.to, fromData.address, toData.address, receiver, odosQ.transaction.data,
-              ]);
-              const odosMinBuy = fresh.odosOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
-                odosMinBuy, ODOSOL_ADDRESS, odosolData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? amountIn : 0n;
-            } else {
-              txData = fresh.multicall;
-              quote.msgValue = fresh.msgValue;
-            }
-          } else if (fresh.isOkx) {
-            const toData = tokens[toSnap];
-            const okxQ = await getOkxQuote(fromData.address, toData.address, amountIn, slippageBps);
-            if (okxQ && okxQ.tx) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const okxolData = OKXOL_IFACE.encodeFunctionData('swap', [
-                okxQ.tx.to, fromData.address, toData.address, receiver, okxQ.tx.data,
-              ]);
-              const okxMinBuy = (quote.okxOutAmount || BigInt(okxQ.routerResult?.toTokenAmount || '0')) * (10000n - BigInt(slippageBps)) / 10000n;
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
-                okxMinBuy, OKXOL_ADDRESS, okxolData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? amountIn : 0n;
-            } else {
-              txData = fresh.multicall;
-              quote.msgValue = fresh.msgValue;
-            }
-          } else if (fresh.isBitget) {
-            const toData = tokens[toSnap];
-            const bitgetQ = await getBitgetQuote(fromData.address, toData.address, amountIn, slippageBps);
-            if (bitgetQ && bitgetQ.tx) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const bitgetolData = BITGETOL_IFACE.encodeFunctionData('swap', [
-                bitgetQ.tx.to, fromData.address, toData.address, receiver, bitgetQ.tx.data,
-              ]);
-              const bitgetMinBuy = BigInt(bitgetQ.toAmount) * (10000n - BigInt(slippageBps)) / 10000n;
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
-                bitgetMinBuy, BITGETOL_ADDRESS, bitgetolData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? amountIn : 0n;
-            } else {
-              txData = fresh.multicall;
-              quote.msgValue = fresh.msgValue;
-            }
-          } else if (fresh.isBebop) {
-            const toData = tokens[toSnap];
-            const bebopQ = await getBebopQuote(fromData.address, toData.address, amountIn, slippageBps);
-            if (bebopQ && bebopQ.tx) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const bebopolData = BEBOPOL_IFACE.encodeFunctionData('swap', [
-                bebopQ.tx.to, fromData.address, toData.address, receiver, bebopQ.tx.data,
-              ]);
-              const bebopMinBuy = BigInt(bebopQ.buyAmount) * (10000n - BigInt(slippageBps)) / 10000n;
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
-                bebopMinBuy, BEBOPOL_ADDRESS, bebopolData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? amountIn : 0n;
-            } else { txData = fresh.multicall; quote.msgValue = fresh.msgValue; }
-          } else if (fresh.isEnso) {
-            const toData = tokens[toSnap];
-            const ensoQ = await getEnsoQuote(fromData.address, toData.address, amountIn, slippageBps);
-            if (ensoQ && ensoQ.tx) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const ensolData = ENSOL_IFACE.encodeFunctionData('swap', [
-                ensoQ.tx.to, fromData.address, toData.address, receiver, ensoQ.tx.data,
-              ]);
-              const ensoMinBuy = BigInt(ensoQ.amountOut) * (10000n - BigInt(slippageBps)) / 10000n;
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
-                ensoMinBuy, ENSOL_ADDRESS, ensolData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? amountIn : 0n;
-            } else { txData = fresh.multicall; quote.msgValue = fresh.msgValue; }
-          } else if (fresh.isOpenOcean) {
-            const toData = tokens[toSnap];
-            const ooQ = await getOpenOceanQuote(fromData.address, toData.address, amountIn, slippageBps);
-            if (ooQ && ooQ.tx) {
-              const isEthIn = fromData.address === ZERO_ADDRESS;
-              const receiver = getReceiver();
-              const openoceanlData = OPENOCEANOL_IFACE.encodeFunctionData('swap', [
-                ooQ.tx.to, fromData.address, toData.address, receiver, ooQ.tx.data,
-              ]);
-              const ooMinBuy = BigInt(ooQ.outAmount) * (10000n - BigInt(slippageBps)) / 10000n;
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                fromData.address, isEthIn ? 0n : amountIn, receiver, toData.address,
-                ooMinBuy, OPENOCEANOL_ADDRESS, openoceanlData,
-              ]);
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[snwapCall]]);
-              quote.msgValue = isEthIn ? amountIn : 0n;
-            } else { txData = fresh.multicall; quote.msgValue = fresh.msgValue; }
-          } else if (fresh.isCow) {
-            const toData = tokens[toSnap];
-            const isEthIn = fromData.address === ZERO_ADDRESS;
-            const cowSellToken = isEthIn ? WETH_ADDRESS : fromData.address;
+          // Rebuild snwap multicall for whichever aggregator won the re-quote
+          {
             const receiver = getReceiver();
-            const cowQ = await getCowQuote(fromData.address, toData.address, amountIn, receiver);
-            if (cowQ && cowQ.quote) {
-              const q = cowQ.quote;
-              const cowolData = COWOL_IFACE.encodeFunctionData('swap', [
-                ZERO_ADDRESS, cowSellToken, ZERO_ADDRESS, ZERO_ADDRESS, cowOrderData(q),
-              ]);
-              const cowAmountIn = BigInt(q.sellAmount) + BigInt(q.feeAmount);
-              const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                cowSellToken, isEthIn ? 0n : cowAmountIn, COWOL_ADDRESS, cowSellToken,
-                0n, COWOL_ADDRESS, cowolData,
-              ]);
-              const cowCalls = isEthIn
-                ? [ROUTER_IFACE.encodeFunctionData('execute', [WETH_ADDRESS, cowAmountIn, "0xd0e30db0"]), snwapCall]
-                : [snwapCall];
-              txData = ROUTER_IFACE.encodeFunctionData('multicall', [cowCalls]);
-              quote.msgValue = isEthIn ? cowAmountIn : 0n;
-              quote._cowOrder = q;
-              quote.isCow = true;
+            const aggResult = await _buildAggSnwapCall(fresh, fromData.address, tokens[toSnap].address, amountIn, undefined, receiver, slippageBps);
+            if (aggResult) {
+              txData = ROUTER_IFACE.encodeFunctionData('multicall', [[aggResult.snwapCall]]);
+              quote.msgValue = aggResult.msgValue;
+            } else if (fresh.isCow) {
+              const isEthIn = fromData.address === ZERO_ADDRESS;
+              const cowSellToken = isEthIn ? WETH_ADDRESS : fromData.address;
+              const cowQ = await getCowQuote(fromData.address, tokens[toSnap].address, amountIn, receiver);
+              if (cowQ && cowQ.quote) {
+                const q = cowQ.quote;
+                const cowolData = COWOL_IFACE.encodeFunctionData('swap', [
+                  ZERO_ADDRESS, cowSellToken, ZERO_ADDRESS, ZERO_ADDRESS, cowOrderData(q),
+                ]);
+                const cowAmountIn = BigInt(q.sellAmount) + BigInt(q.feeAmount);
+                const snwapCall = ROUTER_IFACE.encodeFunctionData('snwap', [
+                  cowSellToken, isEthIn ? 0n : cowAmountIn, COWOL_ADDRESS, cowSellToken,
+                  0n, COWOL_ADDRESS, cowolData,
+                ]);
+                const cowCalls = isEthIn
+                  ? [ROUTER_IFACE.encodeFunctionData('execute', [WETH_ADDRESS, cowAmountIn, "0xd0e30db0"]), snwapCall]
+                  : [snwapCall];
+                txData = ROUTER_IFACE.encodeFunctionData('multicall', [cowCalls]);
+                quote.msgValue = isEthIn ? cowAmountIn : 0n;
+                quote._cowOrder = q;
+                quote.isCow = true;
+              } else {
+                txData = fresh.multicall;
+                quote.msgValue = fresh.msgValue;
+              }
             } else {
               txData = fresh.multicall;
               quote.msgValue = fresh.msgValue;
             }
-          } else {
-            txData = fresh.multicall;
-            quote.msgValue = fresh.msgValue;
           }
           cacheSetAllowance(fromData.address, _connectedAddress, ZROUTER_ADDRESS, ethers.MaxUint256);
         }
@@ -8330,132 +8248,11 @@ async function executeSwap() {
         // For aggregator swaps, retry once with a completely fresh firm quote
         if (isAggSwap && simTry === 0) {
           try {
-            const toData = tokens[toSnap];
             const receiver = getReceiver();
-            let freshCall = null;
-            if (quote.is0x) {
-              const oxQ = await get0xQuote(fromData.address, toData.address, amountIn, slippageBps);
-              if (oxQ && oxQ.transaction) {
-                const matchaData = MATCHA_IFACE.encodeFunctionData('swap', [
-                  oxQ.transaction.to, fromData.address, toData.address, receiver, oxQ.transaction.data,
-                ]);
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, BigInt(oxQ.minBuyAmount), MATCHA_ADDRESS, matchaData,
-                ]);
-              }
-            } else if (quote.isParaswap) {
-              const psBuildSlippage = quote.exactOut ? 0 : slippageBps;
-              const psQ = await getParaswapQuote(quote.psPriceRoute, fromData.address, toData.address, psBuildSlippage);
-              if (psQ && psQ.data) {
-                const parasolData = PARASOL_IFACE.encodeFunctionData('swap', [
-                  psQ.to, fromData.address, toData.address, receiver, psQ.data,
-                ]);
-                const psMinBuy = quote.exactOut
-                  ? BigInt(quote.psPriceRoute.destAmount)
-                  : BigInt(quote.psPriceRoute.destAmount) * (10000n - BigInt(slippageBps)) / 10000n;
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, psMinBuy, PARASOL_ADDRESS, parasolData,
-                ]);
-              }
-            } else if (quote.isKyber) {
-              const ksQ = await getKyberQuote(quote.ksRouteSummary, slippageBps);
-              if (ksQ && ksQ.data) {
-                const kyberolData = KYBEROL_IFACE.encodeFunctionData('swap', [
-                  ksQ.routerAddress, fromData.address, toData.address, receiver, ksQ.data,
-                ]);
-                const ksMinBuy = BigInt(quote.ksRouteSummary.amountOut) * (10000n - BigInt(slippageBps)) / 10000n;
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, ksMinBuy, KYBEROL_ADDRESS, kyberolData,
-                ]);
-              }
-            } else if (quote.is1inch) {
-              const inchQ = await get1inchQuote(fromData.address, toData.address, amountIn, slippageBps);
-              if (inchQ && inchQ.tx) {
-                const oneincholData = ONEINCHOL_IFACE.encodeFunctionData('swap', [
-                  inchQ.tx.to, fromData.address, toData.address, receiver, inchQ.tx.data,
-                ]);
-                const inchMinBuy = BigInt(inchQ.dstAmount) * (10000n - BigInt(slippageBps)) / 10000n;
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, inchMinBuy, ONEINCHOL_ADDRESS, oneincholData,
-                ]);
-              }
-            } else if (quote.isOdos) {
-              const odosQ = await getOdosQuote(quote.odosPathId, slippageBps);
-              if (odosQ && odosQ.transaction) {
-                const odosolData = ODOSOL_IFACE.encodeFunctionData('swap', [
-                  odosQ.transaction.to, fromData.address, toData.address, receiver, odosQ.transaction.data,
-                ]);
-                const odosMinBuy = quote.odosOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, odosMinBuy, ODOSOL_ADDRESS, odosolData,
-                ]);
-              }
-            } else if (quote.isOkx) {
-              const okxQ = await getOkxQuote(fromData.address, toData.address, amountIn, slippageBps);
-              if (okxQ && okxQ.tx) {
-                const okxolData = OKXOL_IFACE.encodeFunctionData('swap', [
-                  okxQ.tx.to, fromData.address, toData.address, receiver, okxQ.tx.data,
-                ]);
-                const okxMinBuy = quote.okxOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, okxMinBuy, OKXOL_ADDRESS, okxolData,
-                ]);
-              }
-            } else if (quote.isBitget) {
-              const bitgetQ = await getBitgetQuote(fromData.address, toData.address, amountIn, slippageBps);
-              if (bitgetQ && bitgetQ.tx) {
-                const bitgetolData = BITGETOL_IFACE.encodeFunctionData('swap', [
-                  bitgetQ.tx.to, fromData.address, toData.address, receiver, bitgetQ.tx.data,
-                ]);
-                const bitgetMinBuy = quote.bitgetOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, bitgetMinBuy, BITGETOL_ADDRESS, bitgetolData,
-                ]);
-              }
-            } else if (quote.isBebop) {
-              const bebopQ = await getBebopQuote(fromData.address, toData.address, amountIn, slippageBps);
-              if (bebopQ && bebopQ.tx) {
-                const bebopolData = BEBOPOL_IFACE.encodeFunctionData('swap', [
-                  bebopQ.tx.to, fromData.address, toData.address, receiver, bebopQ.tx.data,
-                ]);
-                const bebopMinBuy = quote.bebopOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, bebopMinBuy, BEBOPOL_ADDRESS, bebopolData,
-                ]);
-              }
-            } else if (quote.isEnso) {
-              const ensoQ = await getEnsoQuote(fromData.address, toData.address, amountIn, slippageBps);
-              if (ensoQ && ensoQ.tx) {
-                const ensolData = ENSOL_IFACE.encodeFunctionData('swap', [
-                  ensoQ.tx.to, fromData.address, toData.address, receiver, ensoQ.tx.data,
-                ]);
-                const ensoMinBuy = quote.ensoOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, ensoMinBuy, ENSOL_ADDRESS, ensolData,
-                ]);
-              }
-            } else if (quote.isOpenOcean) {
-              const ooQ = await getOpenOceanQuote(fromData.address, toData.address, amountIn, slippageBps);
-              if (ooQ && ooQ.tx) {
-                const openoceanlData = OPENOCEANOL_IFACE.encodeFunctionData('swap', [
-                  ooQ.tx.to, fromData.address, toData.address, receiver, ooQ.tx.data,
-                ]);
-                const ooMinBuy = quote.ooOutAmount * (10000n - BigInt(slippageBps)) / 10000n;
-                freshCall = ROUTER_IFACE.encodeFunctionData('snwap', [
-                  fromData.address, approved ? 0n : (fromData.address === ZERO_ADDRESS ? 0n : amountIn),
-                  receiver, toData.address, ooMinBuy, OPENOCEANOL_ADDRESS, openoceanlData,
-                ]);
-              }
-            }
+            const isEthIn = fromData.address === ZERO_ADDRESS;
+            const snwapAmtIn = approved ? 0n : (isEthIn ? 0n : amountIn);
+            const aggResult = await _buildAggSnwapCall(quote, fromData.address, tokens[toSnap].address, amountIn, snwapAmtIn, receiver, slippageBps);
+            const freshCall = aggResult ? aggResult.snwapCall : null;
             if (freshCall) {
               if (approved && txData.includes(ROUTER_IFACE.getFunction('permit2TransferFrom').selector.slice(2))) {
                 // Permit2 multicall: extract permit2 call prefix, rebuild with fresh snwap

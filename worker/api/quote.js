@@ -1070,9 +1070,11 @@ export default {
       try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON body' }, 400); }
       const { from, to, data, value } = body;
       if (!from || !to || !data) return jsonResponse({ error: 'Missing from, to, or data' }, 400);
+      const acct = env.TENDERLY_ACCOUNT || 'z0r0zzz';
+      const proj = env.TENDERLY_PROJECT || 'project';
       try {
         const simRes = await fetch(
-          `https://api.tenderly.co/api/v1/account/${env.TENDERLY_ACCOUNT || 'z0r0zzz'}/project/${env.TENDERLY_PROJECT || 'project'}/simulate`,
+          `https://api.tenderly.co/api/v1/account/${acct}/project/${proj}/simulate`,
           {
             method: 'POST',
             headers: { 'X-Access-Key': env.TENDERLY_ACCESS_TOKEN, 'Content-Type': 'application/json' },
@@ -1095,6 +1097,11 @@ export default {
         const sim = await simRes.json();
         const simId = sim.simulation?.id;
         if (!simId) return jsonResponse({ error: 'No simulation ID returned' }, 502);
+        // Make the simulation publicly shareable
+        await fetch(
+          `https://api.tenderly.co/api/v1/account/${acct}/project/${proj}/simulations/${simId}/share`,
+          { method: 'POST', headers: { 'X-Access-Key': env.TENDERLY_ACCESS_TOKEN } }
+        );
         return jsonResponse({
           id: simId,
           url: `https://www.tdly.co/shared/simulation/${simId}`,

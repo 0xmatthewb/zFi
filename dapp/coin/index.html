@@ -101,6 +101,8 @@ input {
   color:var(--red);background:var(--status-error);padding:2px 6px;
 }
 .coin-inactive { display:none; }
+.coin-legacy { display:none; }
+.coin-lowmcap { display:none; }
 .spam-toggle {
   cursor:pointer;text-decoration:underline;text-decoration-style:dotted;
   text-underline-offset:2px;
@@ -689,6 +691,14 @@ async function fetchCurveTokenList() {
   } catch { return []; }
 }
 
+// Cause coin discovery via Supabase (new launches not in legacy scanDAICOs)
+async function fetchCauseTokenList() {
+  try {
+    const rows = await coinDbFetch('launched_tokens', 'launch_type=eq.cause&order=created_at.desc&limit=500');
+    return Array.isArray(rows) ? rows.filter(r => r.token_address) : [];
+  } catch { return []; }
+}
+
 // ZORG DAO spam filtering
 const ZORG_DAO = '0x5E58BA0e06ED0F5558f83bE732a4b899a674053E';
 const ZORG_TOKEN = '0x00a6bA94BBb5474725515De88fE04F854f2dCb12';
@@ -799,6 +809,18 @@ function toggleSpamCoins() {
 
 function toggleInactiveCoins() {
   const cards = document.querySelectorAll('#coinGrid .coin-inactive');
+  const showing = cards.length > 0 && cards[0].style.display === 'block';
+  cards.forEach(c => { c.style.display = showing ? 'none' : 'block'; });
+}
+
+function toggleLegacyCoins() {
+  const cards = document.querySelectorAll('#coinGrid .coin-legacy');
+  const showing = cards.length > 0 && cards[0].style.display === 'block';
+  cards.forEach(c => { c.style.display = showing ? 'none' : 'block'; });
+}
+
+function toggleLowMcapCoins() {
+  const cards = document.querySelectorAll('#coinGrid .coin-lowmcap');
   const showing = cards.length > 0 && cards[0].style.display === 'block';
   cards.forEach(c => { c.style.display = showing ? 'none' : 'block'; });
 }
@@ -1711,15 +1733,16 @@ async function renderGallery() {
 
   try {
     // Fetch DAICO coins and ClassicalCurveSale coins in parallel
-    const [daicos, curveTokenAddrs] = await Promise.all([
+    const [daicos, curveTokenAddrs, causeTokenRows] = await Promise.all([
       withRPC(async rpc => {
         const helper = new ethers.Contract(VIEW_HELPER, SCAN_ABI, rpc);
         return await helper.scanDAICOs(0, 500, [ZERO]);
       }),
-      fetchCurveTokenList()
+      fetchCurveTokenList(),
+      fetchCauseTokenList()
     ]);
 
-    if ((!daicos || daicos.length === 0) && curveTokenAddrs.length === 0) {
+    if ((!daicos || daicos.length === 0) && curveTokenAddrs.length === 0 && causeTokenRows.length === 0) {
       app.innerHTML = `
         <div class="header">
           <h1>Coins</h1>
@@ -1739,7 +1762,11 @@ async function renderGallery() {
       '0x7dDECc13905448159d5462bF49ac7C48f348d18C',
       '0xF792394938E553eA4cdbFa984509550A5fe335e5'
     ].map(a => a.toLowerCase()));
-    const filtered = (daicos || []).filter(d => !EXCLUDED_COINS.has(d.dao.toLowerCase()));
+    let filtered = (daicos || []).filter(d => !EXCLUDED_COINS.has(d.dao.toLowerCase()));
+
+    // Identify cause coins from Supabase not in scanDAICOs
+    const daicoAddrSet = new Set(filtered.map(d => d.dao.toLowerCase()));
+    const missingCauseRows = causeTokenRows.filter(r => !daicoAddrSet.has(r.token_address.toLowerCase()) && !EXCLUDED_COINS.has(r.token_address.toLowerCase()));
 
     // Load cached spam list synchronously (zero latency), refresh in background
     loadSpamListCached();
@@ -1845,6 +1872,7 @@ async function renderGallery() {
     let lowMcapCount = 0;
     let spamCount = 0;
     let inactiveCount = 0;
+    let legacyCount = 0;
     for (let i = 0; i < filtered.length; i++) {
       const d = filtered[i];
       const md = allMetadata[i];
@@ -1901,11 +1929,15 @@ async function renderGallery() {
       const isCause = md && md.launchType === 'cause';
       const isTest = cardName === 'test';
       if (isTest) testCount++;
-      if (!isTest && !isCause && mcapETH < 0.05) { lowMcapCount++; continue; }
+      const isLowMcap = !isTest && !isCause && mcapETH < 0.05;
+      if (isLowMcap) lowMcapCount++;
       const isSpam = _spamSet.has(cardAddr);
       if (isSpam) spamCount++;
       const spamBtnHTML = _userIsVerified && !isSpam ? `<button class="spam-btn" title="Flag as spam" onclick="event.preventDefault();event.stopPropagation();flagCoinAsSpam('${cardAddr}')"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : '';
       const isCollect = md && (md.launchType === 'collector' || md.type === 'collector' || md.type === 'fw-collector');
+      const isFund = md && md.launchType === 'fund';
+      const isLegacy = !isCause && !isCollect && (isFund || (md && md.template && !md.launchType));
+      if (isLegacy) legacyCount++;
 
       // Determine if coin is inactive (no trades in last 3 days)
       // FWC collector DAO is always shown
@@ -1922,7 +1954,7 @@ async function renderGallery() {
       }
 
       const cardHTML = `
-        <a href="#${d.dao}" class="coin-card${isTest ? ' coin-test' : ''}${isSpam ? ' coin-spam' : ''}${isInactive ? ' coin-inactive' : ''}" data-name="${escText(cardName)}" data-symbol="${escText(cardSym)}" data-addr="${cardAddr}" style="position:relative">
+        <a href="#${d.dao}" class="coin-card${isTest ? ' coin-test' : ''}${isSpam ? ' coin-spam' : ''}${isInactive ? ' coin-inactive' : ''}${isLegacy ? ' coin-legacy' : ''}${isLowMcap ? ' coin-lowmcap' : ''}" data-name="${escText(cardName)}" data-symbol="${escText(cardSym)}" data-addr="${cardAddr}" style="position:relative">
           ${spamBtnHTML}
           <div class="coin-card-head">
             <div class="coin-logo">${logoHTML(d.meta, md)}</div>
@@ -1938,7 +1970,7 @@ async function renderGallery() {
             : mcapDisplay ? `<div class="coin-card-mcap">MCap ${mcapDisplay}${mcapUsd ? ` <span class="usd">${mcapUsd}</span>` : ''}</div>` : ''}
         </a>
       `;
-      cards.push({ html: cardHTML, key: cardName + '|' + cardSym, mcap: mcapETH, r0: poolR0, poolDeep, saleActive, isTest, isSpam, isInactive, isCause });
+      cards.push({ html: cardHTML, key: cardName + '|' + cardSym, mcap: mcapETH, r0: poolR0, poolDeep, saleActive, isTest, isSpam, isInactive, isLegacy, isLowMcap, isCause });
     }
 
     // ── Curve coin cards (multicall data already fetched in Phase 2 above) ──
@@ -1988,7 +2020,8 @@ async function renderGallery() {
         const cCardAddr = tokenAddr.toLowerCase();
         const isTest = cCardName === 'test';
         if (isTest) { testCount++; }
-        if (!isTest && curveMcap < 0.05) { lowMcapCount++; continue; }
+        const isLowMcap = !isTest && !cSaleActive && curveMcap < 0.05;
+        if (isLowMcap) lowMcapCount++;
         const isSpam = _spamSet.has(cCardAddr);
         if (isSpam) spamCount++;
         const spamBtnHTML = _userIsVerified && !isSpam ? `<button class="spam-btn" title="Flag as spam" onclick="event.preventDefault();event.stopPropagation();flagCoinAsSpam('${cCardAddr}')"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : '';
@@ -2002,7 +2035,7 @@ async function renderGallery() {
           : symbolSVG(cSym, 40);
 
         const cCardHTML = `
-          <a href="#${tokenAddr}" class="coin-card${isTest ? ' coin-test' : ''}${isSpam ? ' coin-spam' : ''}" data-name="${escText(cCardName)}" data-symbol="${escText(cCardSym)}" data-addr="${cCardAddr}" style="position:relative">
+          <a href="#${tokenAddr}" class="coin-card${isTest ? ' coin-test' : ''}${isSpam ? ' coin-spam' : ''}${isLowMcap ? ' coin-lowmcap' : ''}" data-name="${escText(cCardName)}" data-symbol="${escText(cCardSym)}" data-addr="${cCardAddr}" style="position:relative">
             ${spamBtnHTML}
             <div class="coin-card-head">
               <div class="coin-logo">${logoEl}</div>
@@ -2016,17 +2049,53 @@ async function renderGallery() {
             ${mcapDisplay ? `<div class="coin-card-mcap">FDV ${mcapDisplay}${mcapUsd ? ` <span class="usd">${mcapUsd}</span>` : ''}</div>` : ''}
           </a>
         `;
-        cards.push({ html: cCardHTML, key: cCardName + '|' + cCardSym, mcap: curveMcap, r0: 0n, poolDeep: false, saleActive: cSaleActive, isTest, isSpam, isInactive: false, isCause: false });
+        cards.push({ html: cCardHTML, key: cCardName + '|' + cCardSym, mcap: curveMcap, r0: 0n, poolDeep: false, saleActive: cSaleActive, isTest, isSpam, isInactive: false, isLegacy: false, isLowMcap, isCause: false });
       }
+    }
+
+    // Build cards for Supabase cause coins not in scanDAICOs
+    for (const row of missingCauseRows) {
+      const cAddr = row.token_address;
+      const cName = row.name || 'Unnamed';
+      const cSym = row.symbol || '???';
+      const cCardName = cName.toLowerCase();
+      const cCardSym = cSym.toLowerCase();
+      const cCardAddr = cAddr.toLowerCase();
+      const isSpam = _spamSet.has(cCardAddr);
+      if (isSpam) spamCount++;
+      const spamBtnHTML = _userIsVerified && !isSpam ? `<button class="spam-btn" title="Flag as spam" onclick="event.preventDefault();event.stopPropagation();flagCoinAsSpam('${cCardAddr}')"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : '';
+      const logoImg = row.image ? resolveIPFS(row.image) : null;
+      const logoEl = logoImg
+        ? `<img src="${escAttr(logoImg)}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover" onerror="this.parentNode.innerHTML=symbolSVG(${escAttr(JSON.stringify(cSym))},40)">`
+        : symbolSVG(cSym, 40);
+      const causeCardHTML = `
+        <a href="#${cAddr}" class="coin-card${isSpam ? ' coin-spam' : ''}" data-name="${escText(cCardName)}" data-symbol="${escText(cCardSym)}" data-addr="${cCardAddr}" style="position:relative">
+          ${spamBtnHTML}
+          <div class="coin-card-head">
+            <div class="coin-logo">${logoEl}</div>
+            <div>
+              <div class="coin-card-name">${escText(cName)}</div>
+              <div class="coin-card-symbol">$${escText(cSym)}<span class="coin-tpl-badge coin-tpl-simple" title="DAICO fundraise &middot; ragequittable">cause</span></div>
+            </div>
+          </div>
+          <div class="coin-card-bar">░░░░░░░░░░</div>
+          <div class="coin-card-stat">New</div>
+        </a>
+      `;
+      cards.push({ html: causeCardHTML, key: cCardName + '|' + cCardSym, mcap: 0, r0: 0n, poolDeep: false, saleActive: true, isTest: false, isSpam, isInactive: false, isLegacy: false, isLowMcap: false, isCause: true });
     }
 
     // Group by name|symbol, stack duplicates (exclude spam/inactive from grouping)
     const groups = new Map();
     const spamCards = [];
     const inactiveCards = [];
+    const legacyCards = [];
+    const lowMcapCards = [];
     for (const c of cards) {
       if (c.isSpam) { spamCards.push(c); continue; }
       if (c.isInactive) { inactiveCards.push(c); continue; }
+      if (c.isLegacy) { legacyCards.push(c); continue; }
+      if (c.isLowMcap) { lowMcapCards.push(c); continue; }
       if (!groups.has(c.key)) groups.set(c.key, []);
       groups.get(c.key).push(c);
     }
@@ -2059,21 +2128,23 @@ async function renderGallery() {
         grid += `</div>`;
       }
     }
-    // Append inactive cards individually (hidden by CSS, no stacking)
+    // Append hidden cards individually (hidden by CSS, searchable)
+    for (const c of lowMcapCards) grid += c.html;
+    for (const c of legacyCards) grid += c.html;
     for (const c of inactiveCards) grid += c.html;
-    // Append spam cards individually (hidden by CSS, no stacking)
     for (const c of spamCards) grid += c.html;
 
     app.innerHTML = `
       <div class="header">
-        <h1>Coins <span style="font-weight:400;color:var(--fg-muted)">(${cards.length - testCount - spamCount - inactiveCount})</span></h1>
+        <h1>Coins <span style="font-weight:400;color:var(--fg-muted)">(${cards.length - testCount - spamCount - inactiveCount - legacyCount - lowMcapCount})</span></h1>
         <div><a href="../#coin" class="nav-link">Launch</a><span class="nav-sep">&middot;</span><a href="../" class="nav-link">Swap</a><span class="nav-sep">&middot;</span><a href="../dao/" class="nav-link">DAO</a></div>
       </div>
       <input type="text" class="coin-search" id="coinSearch" placeholder="Search by name, symbol, or address..." oninput="filterCoins()">
       <div class="coin-grid" id="coinGrid">${grid}</div>
+      ${legacyCount > 0 ? `<div style="text-align:center;font-size:11px;color:var(--fg-muted);margin-top:16px"><span class="spam-toggle" onclick="toggleLegacyCoins()">${legacyCount} legacy coin${legacyCount > 1 ? 's' : ''} hidden</span></div>` : ''}
       ${inactiveCount > 0 ? `<div style="text-align:center;font-size:11px;color:var(--fg-muted);margin-top:16px"><span class="spam-toggle" onclick="toggleInactiveCoins()">${inactiveCount} inactive coin${inactiveCount > 1 ? 's' : ''} hidden</span></div>` : ''}
       ${spamCount > 0 ? `<div id="spamCount" data-count="${spamCount}" style="text-align:center;font-size:11px;color:var(--fg-muted);margin-top:16px"><span class="spam-toggle" onclick="toggleSpamCoins()">${spamCount} community-flagged coin${spamCount > 1 ? 's' : ''} hidden</span></div>` : `<div id="spamCount" data-count="0" style="display:none;text-align:center;font-size:11px;color:var(--fg-muted);margin-top:16px"></div>`}
-      ${lowMcapCount > 0 ? `<div style="text-align:center;font-size:11px;color:var(--fg-muted);margin-top:16px">${lowMcapCount} low-liquidity coin${lowMcapCount > 1 ? 's' : ''} hidden</div>` : ''}
+      ${lowMcapCount > 0 ? `<div style="text-align:center;font-size:11px;color:var(--fg-muted);margin-top:16px"><span class="spam-toggle" onclick="toggleLowMcapCoins()">${lowMcapCount} low-liquidity coin${lowMcapCount > 1 ? 's' : ''} hidden</span></div>` : ''}
     `;
   } catch(e) {
     app.innerHTML = `

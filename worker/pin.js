@@ -9,7 +9,7 @@ const OKX_API = 'https://web3.okx.com';
 const MAX_IMAGE = 5 * 1024 * 1024; // 5MB
 const MAX_JSON = 64 * 1024; // 64KB
 
-const ALLOWED_ORIGINS = ['https://zfi.wei.is', 'http://localhost:8080'];
+const ALLOWED_ORIGINS = ['https://zfi.wei.is', 'http://localhost:8080', 'http://localhost:3000'];
 
 function cors(request) {
   const origin = request.headers.get('Origin') || '';

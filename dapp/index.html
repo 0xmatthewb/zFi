@@ -13877,9 +13877,10 @@ async function coinLaunch() {
         deadline = 0n;
       } else {
         // Fixed 10M shares, price derived from raise
+        // Cap is 9,999,999 because creator's 1 share is minted at deploy (total supply = 10M)
         const totalShares = 10_000_000;
         priceWei = ethers.parseEther(String(raise)) / BigInt(totalShares);
-        capShares = ethers.parseEther(String(totalShares));
+        capShares = ethers.parseEther(String(totalShares - 1));
         deadline = BigInt(Math.floor(Date.now() / 1000)) + BigInt(days) * 86400n;
       }
 

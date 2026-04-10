@@ -2668,6 +2668,8 @@ function makeFallbackProvider(urls) {
     p: new ethers.JsonRpcProvider(u, network, { staticNetwork: true, batchMaxCount: 10 }),
     downUntil: 0,
     ok: true,
+    avgMs: 0, // rolling average latency for smarter ordering
+    _calls: 0,
   }));
 
   const walletReader = makeWalletReader();
@@ -2710,14 +2712,20 @@ function makeFallbackProvider(urls) {
     async call(fn) {
       const now = Date.now();
       let lastErr;
-      const candidates = nodes
-        .filter(n => n.ok && n.downUntil <= now)
-        .concat(nodes.filter(n => n.ok && n.downUntil > now));
+      // Prefer RPCs that are up, sorted by recent latency (fastest first)
+      const up = nodes.filter(n => n.ok && n.downUntil <= now).sort((a, b) => a.avgMs - b.avgMs);
+      const down = nodes.filter(n => n.ok && n.downUntil > now);
+      const candidates = up.concat(down);
 
       for (const n of candidates) {
         try {
-          const res = await withTimeout(6000, () => fn(n.p));
+          const t0 = Date.now();
+          const res = await withTimeout(4000, () => fn(n.p));
           n.downUntil = 0;
+          // Update rolling average latency (exponential moving average, alpha=0.3)
+          const elapsed = Date.now() - t0;
+          n._calls++;
+          n.avgMs = n._calls === 1 ? elapsed : n.avgMs * 0.7 + elapsed * 0.3;
           return res;
         } catch (e) {
           lastErr = e;
@@ -3500,7 +3508,55 @@ async function handleAmountChange() {
     const simEl = $('simInfo');
     const tlyEl = $('tenderlyLink');
     if (tlyEl) tlyEl.style.display = 'none';
-    const sim = quote._sim;
+    // If on-chain sim is still pending, show intermediate state and resolve async.
+    // Only applies to on-chain winners — aggregator winners use _simulateAggregator below.
+    let sim = quote._sim;
+    let _simPending = false;
+    const _isOnChainQuote = !_isAggWinner(quote) && !quote.isCow;
+    if (!sim && quote._simP && _isOnChainQuote) {
+      _simPending = true;
+      if (!isDirectPath) {
+        setShown('simRow', true);
+        simEl.textContent = 'Simulating...';
+        simEl.className = '';
+      }
+      const _simSeq = seq;
+      quote._simP.then(resolvedSim => {
+        if (_simSeq !== _quoteSeq) return; // stale
+        if (!quote._simP) return; // cleared by manual route selection
+        if (isDirectPath) { setShown('simRow', false); return; }
+        const s = quote._sim; // populated by the promise handler
+        if (!s) { setShown('simRow', false); return; }
+        if (s.ok) {
+          if (s.drift != null && s.drift > 1) {
+            simEl.textContent = `Quoted output ~${s.drift.toFixed(1)}% above simulated`;
+            simEl.className = 'sim-warn';
+          } else {
+            simEl.textContent = 'Verified';
+            simEl.className = 'sim-ok';
+          }
+        } else if (s.reason === 'timeout') {
+          // Sim timed out — not a routing failure, just slow RPC
+          setShown('simRow', false);
+        } else if (s.expected) {
+          simEl.textContent = 'Pending approval';
+          simEl.className = '';
+        } else {
+          simEl.textContent = 'Route would revert';
+          simEl.className = 'sim-fail';
+          // Block swap button on revert (same as synchronous path)
+          const swapBtn = $("swapBtn");
+          if (swapBtn && _simSeq === _quoteSeq) {
+            setText(swapBtn, "Swap would revert — try another route");
+            setDisabled(swapBtn, true);
+          }
+        }
+        // Fire non-blocking Tenderly for on-chain route
+        if (quote.multicall && _connectedAddress) {
+          _fireTenderlySimulation(_connectedAddress, ZROUTER_ADDRESS, quote.multicall, String(quote.msgValue || '0'), _simSeq);
+        }
+      });
+    }
     let _simBlocked = false;
     if (sim && !isDirectPath) {
       setShown('simRow', true);
@@ -3513,6 +3569,9 @@ async function handleAmountChange() {
           simEl.textContent = 'Verified';
           simEl.className = 'sim-ok';
         }
+      } else if (sim.reason === 'timeout') {
+        // Sim timed out — not a routing failure, just slow RPC
+        setShown('simRow', false);
       } else if (sim.expected) {
         // Allowance/balance error — expected before approval, not a routing issue
         simEl.textContent = 'Pending approval';
@@ -3529,7 +3588,7 @@ async function handleAmountChange() {
       }
     } else if (sim && isDirectPath) {
       setShown('simRow', false);
-    } else {
+    } else if (!_simPending) {
       // Aggregator winner — fire async sim from firm quote
       if (quote._firmQuoteP) {
         setShown('simRow', true);
@@ -3543,7 +3602,7 @@ async function handleAmountChange() {
         _simulateAggregator(quote, _aggFromAddr, _aggToAddr, _aggAmountIn, _aggReceiver)
           .then(aggSim => {
             if (_aggSeq !== _quoteSeq) return; // stale — new quote handles simRow
-            if (!aggSim) { setShown('simRow', false); return; } // firm quote failed
+            if (!aggSim || aggSim.reason === 'timeout') { setShown('simRow', false); return; }
             setShown('simRow', true);
             if (aggSim.ok) {
               if (aggSim.drift != null && aggSim.drift > 1) {
@@ -4331,15 +4390,25 @@ async function getZOrgQuote(fromAmountStr, fromSym) {
   });
 }
 
-// ---- External API price cache (5s TTL, prevents re-fetch on rapid re-quotes) ----
+// ---- External API price cache (15s TTL, LRU eviction, prevents re-fetch on rapid re-quotes) ----
 const _extPriceCache = new Map();
-const _extPriceTTL = 5000;
+const _extPriceTTL = 15_000;
+const _extPriceMaxSize = 100;
 function cachedFetch(key, fetchFn) {
   const cached = _extPriceCache.get(key);
-  if (cached && Date.now() - cached.t < _extPriceTTL) return Promise.resolve(cached.v);
+  if (cached && Date.now() - cached.t < _extPriceTTL) {
+    // LRU: move to end on access
+    _extPriceCache.delete(key);
+    _extPriceCache.set(key, cached);
+    return Promise.resolve(cached.v);
+  }
   return fetchFn().then(v => {
     _extPriceCache.set(key, { v, t: Date.now() });
-    if (_extPriceCache.size > 50) _extPriceCache.delete(_extPriceCache.keys().next().value);
+    // Evict oldest (least recently used) entries when over limit
+    if (_extPriceCache.size > _extPriceMaxSize) {
+      const oldest = _extPriceCache.keys().next().value;
+      _extPriceCache.delete(oldest);
+    }
     return v;
   });
 }
@@ -4907,7 +4976,7 @@ async function _simulateRoute(provider, multicall, msgValue, calls, isSplit) {
   } catch (e) {
     // Combine all error fields — e.data is hex (won't match text), e.reason/e.message have human text
     const msg = [e?.reason, e?.shortMessage, e?.message, e?.data].filter(Boolean).map(String).join(' ');
-    if (/sim_timeout/i.test(msg)) return { ok: true, simOutput: null }; // timed out — don't block
+    if (/sim_timeout/i.test(msg)) return { ok: false, reason: 'timeout', expected: true }; // timed out — non-blocking, show "Pending"
     const isAllowanceErr = /STF|TRANSFER_FROM_FAILED|insufficient allowance|ERC20.*exceeds/i.test(msg);
     const isBalanceErr = /insufficient funds|gas required exceeds|insufficient balance/i.test(msg);
     return { ok: false, reason: msg, expected: isAllowanceErr || isBalanceErr };
@@ -5116,22 +5185,14 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
     const bebopPriceP = cachedFetch(`bebop:${_cacheKey}`, () => getBebopPrice(fromData.address, toData.address, amountIn)).catch(() => null);
     const ensoPriceP = cachedFetch(`enso:${_cacheKey}`, () => getEnsoPrice(fromData.address, toData.address, amountIn)).catch(() => null);
     const ooPriceP = cachedFetch(`oo:${_cacheKey}`, () => getOpenOceanPrice(fromData.address, toData.address, amountIn)).catch(() => null);
-    // Merge light + heavy entries into a single Multicall3 batch (1 RPC call instead of 2)
-    const heavyOffset = mc3Entries.length;
-    const allEntries = [...mc3Entries, ...heavyEntries];
-    let mc3All = null;
-    try { mc3All = await mc3ViewBatch(rpc, allEntries); } catch (_) {}
-    let mc3 = mc3All ? mc3All.slice(0, heavyOffset) : null;
-    let heavyMc3 = mc3All ? mc3All.slice(heavyOffset) : null;
-    // Fallback: if merged batch failed (RPC gas limit), retry as two separate calls
-    if (!mc3All) {
-      const settled = await Promise.allSettled([
-        mc3ViewBatch(rpc, heavyEntries),
-        mc3ViewBatch(rpc, mc3Entries),
-      ]);
-      heavyMc3 = settled[0].status === 'fulfilled' ? settled[0].value : null;
-      mc3 = settled[1].status === 'fulfilled' ? settled[1].value : null;
-    }
+    // Fire light + heavy Multicall3 batches in parallel (avoids merged batch
+    // hitting RPC gas limits and triggering a slow fallback-then-retry path)
+    const [lightSettled, heavySettled] = await Promise.allSettled([
+      mc3ViewBatch(rpc, mc3Entries),
+      mc3ViewBatch(rpc, heavyEntries),
+    ]);
+    let mc3 = lightSettled.status === 'fulfilled' ? lightSettled.value : null;
+    let heavyMc3 = heavySettled.status === 'fulfilled' ? heavySettled.value : null;
     // Decode heavy batch
     let bestResult = mc3AsSettled(heavyMc3, _heavyBestIdx, QUOTER_IFACE, "buildBestSwapViaETHMulticall");
     // Fallback: if heavy batch failed entirely (RPC gas/compute limit), retry the
@@ -5651,25 +5712,22 @@ async function getQuote(fromAmountStr, fromSym, toSym) {
       break;
     }
 
-    // Await simulation result (fired in parallel with external APIs above)
-    const isOnChainWinner = !_isAggWinner(result) && !result.isCow;
-    try {
-      const sim = await _simP;
-      if (isOnChainWinner) {
-        // Simulation applies directly to the winning route
+    // Attach simulation as a lazy promise — don't block the quote return.
+    // UI layer resolves it asynchronously and updates sim status when ready.
+    const _expectedOutput = result.expectedOutput;
+    const _isOnChainWinner = !_isAggWinner(result) && !result.isCow;
+    result._simP = _simP.then(sim => {
+      if (_isOnChainWinner) {
         result._sim = sim;
         if (sim.ok && sim.simOutput != null && sim.simOutput > 0n) {
-          // Compare simulated output vs quoted output
-          const drift = Number(result.expectedOutput - sim.simOutput) * 100 / Number(result.expectedOutput);
-          result._sim.drift = drift; // positive = quote overstates
+          const drift = Number(_expectedOutput - sim.simOutput) * 100 / Number(_expectedOutput);
+          result._sim.drift = drift;
         }
       } else {
-        // Aggregator won; simulation validates the on-chain fallback
         result._simFallback = sim;
       }
-    } catch (_) {
-      // Simulation failed entirely — non-blocking, quote is still usable
-    }
+      return sim;
+    }).catch(() => null);
 
     return result;
   });
@@ -5987,20 +6045,21 @@ async function getExactOutQuote(outputAmountStr, fromSym, toSym) {
       }
     }
 
-    // Await simulation result
-    const isOnChainWinner = !result.isParaswap;
-    try {
-      const sim = await _simP;
-      if (isOnChainWinner) {
+    // Attach simulation as a lazy promise — don't block the quote return.
+    const _expectedOutput = result.expectedOutput;
+    const _isOnChainWinner = !result.isParaswap;
+    result._simP = _simP.then(sim => {
+      if (_isOnChainWinner) {
         result._sim = sim;
         if (sim.ok && sim.simOutput != null && sim.simOutput > 0n) {
-          const drift = Number(result.expectedOutput - sim.simOutput) * 100 / Number(result.expectedOutput);
+          const drift = Number(_expectedOutput - sim.simOutput) * 100 / Number(_expectedOutput);
           result._sim.drift = drift;
         }
       } else {
         result._simFallback = sim;
       }
-    } catch (_) {}
+      return sim;
+    }).catch(() => null);
 
     return result;
   });
@@ -6034,12 +6093,13 @@ function displayAllRoutes(quote, toSym, isExactOut = false, fromSym = null) {
   }
   // Track which route index is currently selected (for highlighting)
   const selIdx = quote._manualIdx ?? -1;
+  // Tag each quote with its original index to avoid O(n) indexOf lookups
+  const tagged = quote.allQuotes.map((q, i) => ({ q, origIdx: i }));
   if (isExactOut && fromSym) {
     const fromData = tokens[fromSym];
-    const sorted = [...quote.allQuotes].sort((a, b) => (a.amountIn < b.amountIn ? -1 : a.amountIn > b.amountIn ? 1 : 0));
-    const bestAmt = sorted[0].amountIn;
-    list.innerHTML = sorted.map((q, si) => {
-      const origIdx = quote.allQuotes.indexOf(q);
+    tagged.sort((a, b) => (a.q.amountIn < b.q.amountIn ? -1 : a.q.amountIn > b.q.amountIn ? 1 : 0));
+    const bestAmt = tagged[0].q.amountIn;
+    list.innerHTML = tagged.map(({ q, origIdx }) => {
       const inp = fmt(ethers.formatUnits(q.amountIn, fromData.decimals));
       const isBest = q.amountIn === bestAmt;
       const isSelected = selIdx >= 0 ? origIdx === selIdx : isBest;
@@ -6056,10 +6116,9 @@ function displayAllRoutes(quote, toSym, isExactOut = false, fromSym = null) {
     }).join('');
   } else {
     const toData = tokens[toSym];
-    const sorted = [...quote.allQuotes].sort((a, b) => (b.amountOut > a.amountOut ? 1 : b.amountOut < a.amountOut ? -1 : 0));
-    const bestAmt = sorted[0].amountOut;
-    list.innerHTML = sorted.map((q, si) => {
-      const origIdx = quote.allQuotes.indexOf(q);
+    tagged.sort((a, b) => (b.q.amountOut > a.q.amountOut ? 1 : b.q.amountOut < a.q.amountOut ? -1 : 0));
+    const bestAmt = tagged[0].q.amountOut;
+    list.innerHTML = tagged.map(({ q, origIdx }) => {
       const out = fmt(ethers.formatUnits(q.amountOut, toData.decimals));
       const isBest = q.amountOut === bestAmt;
       const isSelected = selIdx >= 0 ? origIdx === selIdx : isBest;
@@ -6118,6 +6177,7 @@ function _selectRoute(idx) {
   q._firmQuoteP = null;
   // Clear sim state — route changed, previous sim no longer applies
   q._sim = undefined;
+  q._simP = null;
   q._simFallback = undefined;
   const tlyEl = $('tenderlyLink');
   if (tlyEl) tlyEl.style.display = 'none';
@@ -6174,7 +6234,7 @@ function _selectRoute(idx) {
       q._firmQuoteP = _aggDef.fetch(q, fromData.address, toData.address, amountIn, slippage).catch(() => null);
       _simulateAggregator(q, fromData.address, toData.address, amountIn, receiver)
         .then(aggSim => {
-          if (_selSeq !== _quoteSeq || q._manualIdx !== _selIdx || !aggSim) {
+          if (_selSeq !== _quoteSeq || q._manualIdx !== _selIdx || !aggSim || aggSim.reason === 'timeout') {
             setShown('simRow', false); return;
           }
           setShown('simRow', true);
@@ -6221,6 +6281,9 @@ function _selectRoute(idx) {
           const drift = Number(q.expectedOutput - sim.simOutput) * 100 / Number(q.expectedOutput);
           sim.drift = drift;
         }
+        if (sim.reason === 'timeout') {
+          setShown('simRow', false); return;
+        }
         setShown('simRow', true);
         if (sim.ok) {
           if (sim.drift != null && sim.drift > 1) {
@@ -6254,7 +6317,7 @@ function _selectRoute(idx) {
 // ---- Price impact via spot rate ----
 const _spotCache = new Map();
 const _spotTTL = 120_000;
-const _spotMaxSize = 50;
+const _spotMaxSize = 100;
 
 function _spotKey(tokenIn, tokenOut) {
   return `${tokenIn.toLowerCase()}:${tokenOut.toLowerCase()}`;
@@ -6264,7 +6327,12 @@ async function getSpotRate(fromSym, toSym) {
   const fromData = tokens[fromSym], toData = tokens[toSym];
   const key = _spotKey(fromData.address, toData.address);
   const cached = _spotCache.get(key);
-  if (cached && Date.now() - cached.t < _spotTTL) return cached.rate;
+  if (cached && Date.now() - cached.t < _spotTTL) {
+    // LRU: move to end on access
+    _spotCache.delete(key);
+    _spotCache.set(key, cached);
+    return cached.rate;
+  }
 
   // zAMM/zOrg special paths: use reserve math (quoter doesn't know these tokens)
   const isFromZamm = fromData._isZammStake || fromData._isZOrg;
@@ -6419,12 +6487,12 @@ async function displayPriceImpact(amtStr, fromSym, toSym, quote) {
   }
 }
 
-async function withRetry(task, { tries = 3, base = 120 } = {}) {
+async function withRetry(task, { tries = 2, base = 80 } = {}) {
   let attempt = 0, lastErr;
   while (attempt < tries) {
     try { return await task(); } catch (e) {
       const s = String(e?.message || "");
-      const transient = /missing revert data|CALL_EXCEPTION|timeout|ETIMEDOUT|429|rate/i.test(s);
+      const transient = /missing revert data|timeout|ETIMEDOUT|429|rate/i.test(s);
       if (!transient || attempt === tries - 1) throw e;
       lastErr = e;
       await new Promise(r => setTimeout(r, base * Math.pow(2, attempt)));
@@ -13564,13 +13632,13 @@ function coinUpdatePreview() {
         tapDesc = 'Instant (all funds to beneficiary)';
       } else if (ongoing) {
         // Match contract: rate = parseEther(ethPerMonth) / COIN_SEC_PER_MONTH, display as rate * 86400
-        const rateWei = BigInt(Math.floor(tapEthRate * 1e18)) / COIN_SEC_PER_MONTH;
+        const rateWei = ethers.parseEther(String(tapEthRate)) / COIN_SEC_PER_MONTH;
         const ratePerDay = Number(rateWei) * 86400 / 1e18;
         const rateStr = ratePerDay < 0.0001 ? ratePerDay.toPrecision(2) : ratePerDay.toFixed(4);
         tapDesc = `~${rateStr} ${ethMini}/day (~${tapEthRate} ${ethMini}/mo)`;
       } else {
         // Match contract: budget = parseEther(raise), rate = budget / (months * SEC_PER_MONTH)
-        const budgetWei = BigInt(Math.floor(raise * 1e18));
+        const budgetWei = ethers.parseEther(String(raise));
         const totalSec = BigInt(tapMonths) * COIN_SEC_PER_MONTH;
         const rateWei = totalSec > 0n ? budgetWei / totalSec : 0n;
         const ratePerDay = Number(rateWei) * 86400 / 1e18;
@@ -13787,11 +13855,17 @@ async function coinLaunch() {
 
     // --- Cause DAICO path (SafeSummoner.safeSummonDAICO) ---
     if (_coinLaunchType === 'cause') {
-      const raise = parseFloat($('causeRaise').value) || 10;
-      const days = parseInt($('causeDeadline').value) || 30;
+      const raiseRaw = parseFloat($('causeRaise').value);
+      const daysRaw = parseInt($('causeDeadline').value);
       const ongoing = _causeOngoing;
-      if (!ongoing && (raise <= 0 || days <= 0)) {
-        coinShowStatus('Enter valid raise and deadline', true);
+      const raise = ongoing ? 0 : raiseRaw;
+      const days = ongoing ? 0 : daysRaw;
+      if (!ongoing && (isNaN(raise) || raise < 0.0001)) {
+        coinShowStatus('Raise must be at least 0.0001 ETH', true);
+        _coinLaunching = false; setDisabled('coinLaunchBtn', false); $('coinLaunchProgress').classList.remove('active'); return;
+      }
+      if (!ongoing && (isNaN(days) || days <= 0)) {
+        coinShowStatus('Enter a valid deadline (at least 1 day)', true);
         _coinLaunching = false; setDisabled('coinLaunchBtn', false); $('coinLaunchProgress').classList.remove('active'); return;
       }
 
@@ -13817,7 +13891,12 @@ async function coinLaunch() {
         beneficiary: ZERO_ADDRESS, ratePerSec: 0n
       };
       if (tapEnabled) {
-        const beneficiary = coinGetResolved('causeTapBeneficiary') || address;
+        const benInput = ($('causeTapBeneficiary')?.value || '').trim();
+        const beneficiary = coinGetResolved('causeTapBeneficiary') || (benInput ? null : address);
+        if (!beneficiary) {
+          coinShowStatus('Beneficiary address is not yet resolved — wait for it to resolve or enter a 0x address', true);
+          _coinLaunching = false; setDisabled('coinLaunchBtn', false); $('coinLaunchProgress').classList.remove('active'); return;
+        }
         let budgetWei, rate;
         if (tapInstant) {
           // All funds flow directly to beneficiary — use raise/sec rate so entire
@@ -13827,13 +13906,21 @@ async function coinLaunch() {
           rate = ongoing ? ethers.parseEther('1000') : ethers.parseEther(String(raise)); // raise ETH/sec
         } else if (ongoing) {
           // Ongoing: user-specified ETH/month rate, unlimited budget
-          const ethPerMonth = parseFloat($('causeTapEthRate').value) || 1;
+          const ethPerMonth = parseFloat($('causeTapEthRate').value);
+          if (isNaN(ethPerMonth) || ethPerMonth <= 0) {
+            coinShowStatus('Enter a valid ETH/month rate', true);
+            _coinLaunching = false; setDisabled('coinLaunchBtn', false); $('coinLaunchProgress').classList.remove('active'); return;
+          }
           budgetWei = ethers.MaxUint256;
           rate = ethers.parseEther(String(ethPerMonth)) / COIN_SEC_PER_MONTH;
           if (rate === 0n) rate = 1n;
         } else {
           // Fixed: budget = raise, rate = budget / months
-          const tapMonths = parseInt($('causeTapMonths').value) || 12;
+          const tapMonths = parseInt($('causeTapMonths').value);
+          if (isNaN(tapMonths) || tapMonths <= 0) {
+            coinShowStatus('Enter a valid vesting duration (at least 1 month)', true);
+            _coinLaunching = false; setDisabled('coinLaunchBtn', false); $('coinLaunchProgress').classList.remove('active'); return;
+          }
           budgetWei = ethers.parseEther(String(raise));
           const totalSec = BigInt(tapMonths) * COIN_SEC_PER_MONTH;
           rate = budgetWei / totalSec;
@@ -13906,7 +13993,6 @@ async function coinLaunch() {
 
       const predicted = coinPredict(initHolders, initShares, salt);
       const daoAddress = predicted.dao;
-      const capFmt = Number(ethers.formatEther(capShares)).toLocaleString();
 
       // Register in Supabase
       if (daoAddress && COIN_DB_URL) {

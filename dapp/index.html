@@ -3996,7 +3996,9 @@ async function getDaicoCoinBuyQuote(fromAmountStr, fromSym, toSym) {
       spotOut = spot.amountOut;
     } catch {}
 
-    return {
+    const _simP = _simulateRoute(rpc, multicall, amountIn, calls, false);
+
+    const result = {
       expectedOutput: amountOut,
       multicall, calls, msgValue: amountIn,
       isTwoHop: false, isSplit: false, splitLegs: null,
@@ -4005,6 +4007,17 @@ async function getDaicoCoinBuyQuote(fromAmountStr, fromSym, toSym) {
       spotRate: spotOut > 0n ? spotOut : null,
       spotRefAmount: refAmount,
     };
+
+    result._simP = _simP.then(sim => {
+      result._sim = sim;
+      if (sim.ok && sim.simOutput != null && sim.simOutput > 0n) {
+        const drift = Number(amountOut - sim.simOutput) * 100 / Number(amountOut);
+        result._sim.drift = drift;
+      }
+      return sim;
+    }).catch(() => null);
+
+    return result;
   });
 }
 
@@ -4147,13 +4160,23 @@ async function getZammSellQuote(fromAmountStr, fromSym, toSym) {
       calls.push(ROUTER_IFACE.encodeFunctionData('sweep', [ZORG_PAY_TOKEN, 0, 0, receiver]));
       const multicall = ROUTER_IFACE.encodeFunctionData('multicall', [calls]);
 
-      return {
+      const _simP = _simulateRoute(rpc, multicall, 0n, calls, false);
+      const result = {
         expectedOutput: ethOut,
         multicall, calls, msgValue: 0n,
         isTwoHop: false, isSplit: false, splitLegs: null,
         sourceA: zammSource, sourceB: null,
         allQuotes: [{ source: zammSource, sourceId: 2, feeBps: 100n, amountIn, amountOut: ethOut }],
       };
+      result._simP = _simP.then(sim => {
+        result._sim = sim;
+        if (sim.ok && sim.simOutput != null && sim.simOutput > 0n) {
+          const drift = Number(ethOut - sim.simOutput) * 100 / Number(ethOut);
+          result._sim.drift = drift;
+        }
+        return sim;
+      }).catch(() => null);
+      return result;
     }
 
     // ZAMM → non-ETH: zAMM (ZAMM→ETH) + quoter (ETH→target)
@@ -4185,13 +4208,23 @@ async function getZammSellQuote(fromAmountStr, fromSym, toSym) {
     calls.push(ROUTER_IFACE.encodeFunctionData('sweep', [ZORG_PAY_TOKEN, 0, 0, receiver]));
     const multicall = ROUTER_IFACE.encodeFunctionData('multicall', [calls]);
 
-    return {
+    const _simP = _simulateRoute(rpc, multicall, 0n, calls, false);
+    const result = {
       expectedOutput: finalOut,
       multicall, calls, msgValue: 0n,
       isTwoHop: true, isSplit: false, splitLegs: null,
       sourceA: zammSource, sourceB: secondLegSource,
       allQuotes: [{ source: `${zammSource} + ${secondLegSource}`, sourceId: 2, feeBps: 100n, amountIn, amountOut: finalOut }],
     };
+    result._simP = _simP.then(sim => {
+      result._sim = sim;
+      if (sim.ok && sim.simOutput != null && sim.simOutput > 0n) {
+        const drift = Number(finalOut - sim.simOutput) * 100 / Number(finalOut);
+        result._sim.drift = drift;
+      }
+      return sim;
+    }).catch(() => null);
+    return result;
   });
 }
 
@@ -4263,7 +4296,8 @@ async function getZammBuyQuote(fromAmountStr, fromSym, toSym) {
 
     const multicall = ROUTER_IFACE.encodeFunctionData('multicall', [calls]);
 
-    return {
+    const _simP = _simulateRoute(rpc, multicall, msgValue, calls, false);
+    const result = {
       expectedOutput: zammOut,
       multicall, calls, msgValue,
       isTwoHop: !ethIn, isSplit: false, splitLegs: null,
@@ -4271,6 +4305,15 @@ async function getZammBuyQuote(fromAmountStr, fromSym, toSym) {
       sourceB: ethIn ? null : zammSource,
       allQuotes: [{ source: ethIn ? zammSource : `${firstLegSource} + ${zammSource}`, sourceId: 2, feeBps: 100n, amountIn, amountOut: zammOut }],
     };
+    result._simP = _simP.then(sim => {
+      result._sim = sim;
+      if (sim.ok && sim.simOutput != null && sim.simOutput > 0n) {
+        const drift = Number(zammOut - sim.simOutput) * 100 / Number(zammOut);
+        result._sim.drift = drift;
+      }
+      return sim;
+    }).catch(() => null);
+    return result;
   });
 }
 
@@ -4385,7 +4428,10 @@ async function getZOrgQuote(fromAmountStr, fromSym) {
 
     const multicall = ROUTER_IFACE.encodeFunctionData('multicall', [calls]);
 
-    return {
+    // Simulate route (non-blocking, same pattern as main getQuote)
+    const _simP = _simulateRoute(rpc, multicall, msgValue, calls, false);
+
+    const result = {
       expectedOutput: slipOut,
       multicall,
       calls,
@@ -4397,6 +4443,17 @@ async function getZOrgQuote(fromAmountStr, fromSym) {
       sourceB: ethIn ? null : (useHookless ? "zAMM₀" : "zAMM"),
       allQuotes: [{ source: (useHookless ? "zAMM₀" : "zAMM") + " → DAO Stake", sourceId: 2, feeBps: 100n, amountIn, amountOut: slipOut }],
     };
+
+    result._simP = _simP.then(sim => {
+      result._sim = sim;
+      if (sim.ok && sim.simOutput != null && sim.simOutput > 0n) {
+        const drift = Number(slipOut - sim.simOutput) * 100 / Number(slipOut);
+        result._sim.drift = drift;
+      }
+      return sim;
+    }).catch(() => null);
+
+    return result;
   });
 }
 

@@ -3520,6 +3520,12 @@ async function handleAmountChange() {
         simEl.textContent = 'Simulating...';
         simEl.className = '';
       }
+      // Fire Tenderly immediately in parallel with on-chain sim (don't wait for _simP)
+      if (quote.multicall && _connectedAddress) {
+        _fireTenderlySimulation(_connectedAddress, ZROUTER_ADDRESS, quote.multicall, String(quote.msgValue || '0'), seq);
+      } else if (quote.directDAO && quote.daoCalldata && _connectedAddress) {
+        _fireTenderlySimulation(_connectedAddress, ZORG_DAO, quote.daoCalldata, String(quote.msgValue || '0'), seq);
+      }
       const _simSeq = seq;
       quote._simP.then(resolvedSim => {
         if (_simSeq !== _quoteSeq) return; // stale
@@ -3550,12 +3556,6 @@ async function handleAmountChange() {
             setText(swapBtn, "Swap would revert — try another route");
             setDisabled(swapBtn, true);
           }
-        }
-        // Fire non-blocking Tenderly for on-chain route
-        if (quote.multicall && _connectedAddress) {
-          _fireTenderlySimulation(_connectedAddress, ZROUTER_ADDRESS, quote.multicall, String(quote.msgValue || '0'), _simSeq);
-        } else if (quote.directDAO && quote.daoCalldata && _connectedAddress) {
-          _fireTenderlySimulation(_connectedAddress, ZORG_DAO, quote.daoCalldata, String(quote.msgValue || '0'), _simSeq);
         }
       });
     }
@@ -3970,8 +3970,8 @@ async function getDaicoCoinBuyQuote(fromAmountStr, fromSym, toSym) {
 
   return await quoteRPC.call(async (rpc) => {
     const baseQuoter = getQuoterBaseContract(rpc);
-    const result = await baseQuoter.quoteZAMM(false, fee, ZERO_ADDRESS, toData.address, 0, 0, amountIn, { blockTag: "latest" });
-    const amountOut = result.amountOut;
+    const quoteResult = await baseQuoter.quoteZAMM(false, fee, ZERO_ADDRESS, toData.address, 0, 0, amountIn, { blockTag: "latest" });
+    const amountOut = quoteResult.amountOut;
     const slipOut = amountOut * (10000n - BigInt(slippageBps)) / 10000n;
 
     const calls = [];

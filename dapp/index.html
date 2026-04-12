@@ -2980,7 +2980,7 @@ async function getPermitConfig(tokenAddress) {
   return await detectPermitConfig(tokenAddress);
 }
 
-async function signPermit(config, tokenAddress) {
+async function signPermit(config, tokenAddress, permitValue = ethers.MaxUint256) {
   const deadline = BigInt(Math.trunc(Date.now() / 1000) + 3600);
   const owner = _connectedAddress;
   const spender = ZROUTER_ADDRESS;
@@ -3012,12 +3012,12 @@ async function signPermit(config, tokenAddress) {
         { name: 'deadline', type: 'uint256' },
       ],
     };
-    values = { owner, spender, value: ethers.MaxUint256, nonce, deadline };
+    values = { owner, spender, value: permitValue, nonce, deadline };
   }
 
   const sig = await _signer.signTypedData(config.domain, types, values);
   const { v, r, s } = ethers.Signature.from(sig);
-  return { v, r, s, nonce, deadline, config };
+  return { v, r, s, nonce, deadline, config, value: permitValue };
 }
 
 function decodeMulticallCalls(multicallData) {
@@ -3034,7 +3034,7 @@ function buildPermitMulticall(calls, permitData) {
   if (permitData.config.type === 'dai') {
     permitCall = ROUTER_IFACE.encodeFunctionData('permitDAI', [permitData.nonce, permitData.deadline, permitData.v, permitData.r, permitData.s]);
   } else {
-    permitCall = ROUTER_IFACE.encodeFunctionData('permit', [permitData.config.domain.verifyingContract, ethers.MaxUint256, permitData.deadline, permitData.v, permitData.r, permitData.s]);
+    permitCall = ROUTER_IFACE.encodeFunctionData('permit', [permitData.config.domain.verifyingContract, permitData.value ?? ethers.MaxUint256, permitData.deadline, permitData.v, permitData.r, permitData.s]);
   }
   return ROUTER_IFACE.encodeFunctionData('multicall', [[permitCall, ...calls]]);
 }
@@ -4402,6 +4402,7 @@ async function getZOrgQuote(fromAmountStr, fromSym) {
 
 // ---- External API price cache (15s TTL, LRU eviction, prevents re-fetch on rapid re-quotes) ----
 const _extPriceCache = new Map();
+const _extPriceInflight = new Map();
 const _extPriceTTL = 15_000;
 const _extPriceMaxSize = 100;
 function cachedFetch(key, fetchFn) {
@@ -4412,7 +4413,11 @@ function cachedFetch(key, fetchFn) {
     _extPriceCache.set(key, cached);
     return Promise.resolve(cached.v);
   }
-  return fetchFn().then(v => {
+  // Deduplicate in-flight requests for the same key
+  const inflight = _extPriceInflight.get(key);
+  if (inflight) return inflight;
+  const p = fetchFn().then(v => {
+    _extPriceInflight.delete(key);
     _extPriceCache.set(key, { v, t: Date.now() });
     // Evict oldest (least recently used) entries when over limit
     if (_extPriceCache.size > _extPriceMaxSize) {
@@ -4420,7 +4425,12 @@ function cachedFetch(key, fetchFn) {
       _extPriceCache.delete(oldest);
     }
     return v;
+  }, err => {
+    _extPriceInflight.delete(key);
+    throw err;
   });
+  _extPriceInflight.set(key, p);
+  return p;
 }
 
 // ---- 0x / Matcha API helpers ----
@@ -6789,7 +6799,7 @@ async function executeSwap() {
           if (resetRc.status === 0) throw new Error("Allowance reset failed");
         }
         const approveTx = await wcTransaction(
-          erc20W.approve(ZORG_DAO, ethers.MaxUint256),
+          erc20W.approve(ZORG_DAO, amountIn),
           'Approve ZAMM spending for zOrg DAO in your wallet'
         );
         swapBtn.innerHTML = `Approving... <a href="https://etherscan.io/tx/${escAttr(approveTx.hash)}" target="_blank" style="color:inherit;text-decoration:underline;font-weight:400">view tx &#8599;</a>`;
@@ -6932,11 +6942,11 @@ async function executeSwap() {
               const resetTx = await wcTransaction(erc20W.approve(ZROUTER_ADDRESS, 0), 'Reset allowance');
               await waitForTx(resetTx);
             }
-            const approveTx = await wcTransaction(erc20W.approve(ZROUTER_ADDRESS, ethers.MaxUint256), 'Approve ZAMM for swap');
+            const approveTx = await wcTransaction(erc20W.approve(ZROUTER_ADDRESS, amountIn), 'Approve ZAMM for swap');
             swapBtn.innerHTML = `Approving... <a href="https://etherscan.io/tx/${escAttr(approveTx.hash)}" target="_blank" style="color:inherit;text-decoration:underline;font-weight:400">view tx &#8599;</a>`;
             const rc = await waitForTx(approveTx);
             if (rc.status === 0) throw new Error("Approval failed");
-            cacheSetAllowance(zammAddr, _connectedAddress, ZROUTER_ADDRESS, ethers.MaxUint256);
+            cacheSetAllowance(zammAddr, _connectedAddress, ZROUTER_ADDRESS, 0n);
           }
         }
 
@@ -7498,7 +7508,7 @@ async function executeSwap() {
             });
             approveCalls.push({
               to: fromData.address,
-              data: ERC20_APPROVE_IFACE.encodeFunctionData('approve', [ZROUTER_ADDRESS, ethers.MaxUint256]),
+              data: ERC20_APPROVE_IFACE.encodeFunctionData('approve', [ZROUTER_ADDRESS, amountIn]),
             });
             const batchMsgValue = quote.msgValue ?? 0n;
             const batchRaw = await _connectedWalletProvider.request({
@@ -7527,13 +7537,15 @@ async function executeSwap() {
                 params: [batchId],
               });
               const s = batchResult.status;
-              if (s === 200 || s === 'CONFIRMED' || s === 'confirmed'
-                  || s >= 400 || s === 'REVERTED') break;
+              const sn = typeof s === 'string' ? parseInt(s, 10) : s;
+              if (sn === 200 || s === 'CONFIRMED' || s === 'confirmed'
+                  || sn >= 400 || s === 'REVERTED') break;
             }
             const bs = batchResult?.status;
-            if (bs === 200 || bs === 'CONFIRMED' || bs === 'confirmed') {
+            const bsn = typeof bs === 'string' ? parseInt(bs, 10) : bs;
+            if (bsn === 200 || bs === 'CONFIRMED' || bs === 'confirmed') {
               const batchHash = batchResult.receipts?.[batchResult.receipts.length - 1]?.transactionHash;
-              cacheSetAllowance(fromData.address, _connectedAddress, ZROUTER_ADDRESS, ethers.MaxUint256);
+              cacheSetAllowance(fromData.address, _connectedAddress, ZROUTER_ADDRESS, 0n);
               // CoW Protocol: post signed order after on-chain deposit
               if (quote.isCow && quote._cowOrder) {
                 swapBtn.textContent = "Submitting CoW order...";
@@ -7559,7 +7571,7 @@ async function executeSwap() {
               }, 3000);
               return;
             }
-            throw new Error("Batch " + (bs === 500 ? "reverted" : bs === 600 ? "partially reverted" : bs || "failed"));
+            throw new Error("Batch " + (bsn === 500 ? "reverted" : bsn === 600 ? "partially reverted" : bs || "failed"));
           } catch (e5792) {
             const msg = String(e5792?.message || '');
             if (/user rejected|user denied|user cancelled/i.test(msg)) throw e5792;
@@ -7572,7 +7584,7 @@ async function executeSwap() {
         if (permitCfg) {
           try {
             swapBtn.textContent = "Sign permit...";
-            const permitData = await signPermit(permitCfg, fromData.address);
+            const permitData = await signPermit(permitCfg, fromData.address, amountIn);
             let permitInnerCalls = quote.calls || decodeMulticallCalls(quote.multicall);
             // For aggregator swaps, re-fetch firm quote after signing (user may have
             // spent time in wallet popup, expiring the baked-in aggregator calldata).
@@ -8002,7 +8014,7 @@ async function executeSwap() {
             if (resetRc.status === 0) throw new Error("Allowance reset failed");
           }
           const approveTx = await wcTransaction(
-            erc20W.approve(ZROUTER_ADDRESS, ethers.MaxUint256),
+            erc20W.approve(ZROUTER_ADDRESS, amountIn),
             'Approve token spending in your wallet'
           );
           swapBtn.innerHTML = `Approving... <a href="https://etherscan.io/tx/${escAttr(approveTx.hash)}" target="_blank" style="color:inherit;text-decoration:underline;font-weight:400">view tx &#8599;</a>`;
@@ -8046,7 +8058,7 @@ async function executeSwap() {
               quote.msgValue = fresh.msgValue;
             }
           }
-          cacheSetAllowance(fromData.address, _connectedAddress, ZROUTER_ADDRESS, ethers.MaxUint256);
+          cacheSetAllowance(fromData.address, _connectedAddress, ZROUTER_ADDRESS, 0n);
         }
       }
     }

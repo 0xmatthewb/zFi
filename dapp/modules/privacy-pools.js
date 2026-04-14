@@ -2690,7 +2690,7 @@ function ppUpdateDescriptions(connected) {
   if (d) setShown(d, !connected);
   if (m) m.innerHTML = connected
     ? 'You can also view your balances at <a href="https://privacypools.com" target="_blank" rel="noopener">privacypools.com</a> with the same wallet.'
-    : 'Connect your wallet to view pool balances, withdraw, or ragequit. You can also view your balances at <a href="https://privacypools.com" target="_blank" rel="noopener">privacypools.com</a> with the same wallet.';
+    : 'Connect your wallet to view Pool Balances and withdraw in the Privacy tab. Ragequit is available for eligible Pool Accounts from the original depositor wallet. You can also view your balances at <a href="https://privacypools.com" target="_blank" rel="noopener">privacypools.com</a> with the same wallet.';
   ppRenderWalletCompatibilityNotice(ppGetWalletCompatibilitySnapshot().result);
   ppRenderWalletSeedBackupNotice();
 }
@@ -4953,8 +4953,8 @@ function ppwCanSubmitWithdrawalState({
   if (hasActiveBackupPrompt) return false;
   if (connectedAddress && signer && isWalletCompatPending) return false;
   if (connectedAddress && signer && isWalletCompatBlocked) return false;
-  if (mode === 'relay') return !!resolvedRecipient;
-  return !!connectedAddress && !!signer;
+  if (mode !== 'relay') return false;
+  return !!resolvedRecipient;
 }
 
 function ppwCanSubmitWithdrawal() {
@@ -5057,11 +5057,6 @@ function ppwSetDraftInteractivity(phase = 'editing') {
     quickBtn.disabled = !isEditable || isRagequit;
     quickBtn.style.opacity = (isEditable && !isRagequit) ? '' : '0.55';
     quickBtn.style.cursor = (isEditable && !isRagequit) ? '' : 'default';
-  }
-  const relayBtn = $('ppwModeRelay');
-  if (relayBtn) {
-    relayBtn.disabled = !isEditable || isRagequit;
-    relayBtn.style.cursor = (isEditable && !isRagequit) ? '' : 'default';
   }
   const extraGasEl = $('ppwExtraGas');
   if (extraGasEl) {
@@ -5189,6 +5184,7 @@ function ppwSetMode(mode) {
     _ppwDraftPhase = 'editing';
   }
   if (ppwIsRagequitAction()) mode = 'direct'; // ragequit uses direct internally
+  else mode = 'relay'; // standard withdrawals are relay-only
   _ppwMode = mode;
   const isRagequit = ppwIsRagequitAction();
   ppwUpdateRecipientHint();
@@ -6922,7 +6918,7 @@ async function ppwCollectWithdrawalIntent(run) {
 
   const customRecipient = $('ppwRecipient')?.value.trim() || '';
   const resolvedRecipient = ppwGetRecipientAddress();
-  const isRelayMode = !isRagequit && _ppwMode === 'relay';
+  const isRelayMode = !isRagequit;
   if (isRelayMode && (!customRecipient || !resolvedRecipient)) {
     showStatus('Enter a recipient address, name.wei, or name.eth for relay withdrawal.', 'error');
     return null;
@@ -7491,73 +7487,52 @@ async function ppwRevalidateBeforeSubmit(job, proofState, quoteState, run) {
 }
 
 async function ppwSubmitWithdrawal(job, proofState, quoteState, run) {
-  if (job.intent.isRelayMode) {
-    run.setProgressStage('submittingRelay', _ppwMode);
-    run.log('Submitting to relayer...');
-    run.setButtonText('Submitting to relayer...');
-    let relayResult;
-    try {
-      relayResult = await ppwRelayerRequest(
-        quoteState.relayChainId,
-        job.intent.scope,
-        { processooor: proofState.withdrawalProcessooor, data: proofState.withdrawalData },
-        proofState.proof,
-        proofState.publicSignals,
-        quoteState.relayQuote.feeCommitment
-      );
-    } catch (relayErr) {
-      console.warn('Privacy: relayer submission failed', relayErr);
-      run.logHtml('<b>Relayer submission failed.</b> Your withdrawal was not submitted. Retry the relay flow in a few minutes.');
-      showStatus('Relayer submission failed before submission. Your withdrawal was not submitted. Retry the relay flow in a few minutes.', 'error');
-      return null;
-    }
-    const txHash = relayResult?.txHash || relayResult?.hash || relayResult?.transactionHash;
-    if (!txHash) {
-      console.warn('Privacy: relayer returned unexpected response format', relayResult);
-      run.logHtml('<b>Relayer returned an unexpected response.</b> Your withdrawal was not submitted. Retry the relay flow.');
-      showStatus('Relayer did not confirm submission. Your withdrawal was not submitted. Retry the relay flow.', 'error');
-      return null;
-    }
-    run.log('Relayer accepted! Transaction: ' + escText(txHash));
-    run.setButtonText('Waiting for confirmation...');
-    run.setProgressStage('waitingConfirmation', _ppwMode);
-    let receipt = null;
-    for (let poll = 0; poll < 150; poll++) {
-      receipt = await ppReadWithRpc((rpc) => rpc.getTransactionReceipt(txHash)).catch(() => null);
-      if (receipt) break;
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-    return { txHash, receipt, relayResult };
-  }
-
-  run.setProgressStage('submittingDirect', _ppwMode);
-  try {
-    const currentAddr = await _signer.getAddress();
-    if (currentAddr.toLowerCase() !== _connectedAddress.toLowerCase()) {
-      showStatus('Wallet changed during withdrawal. Please reconnect and retry.', 'error');
-      return null;
-    }
-  } catch {
-    showStatus('Wallet disconnected. Please reconnect and retry.', 'error');
+  if (!job.intent.isRelayMode) {
+    run.logHtml('<b>Error:</b> Direct withdrawal is no longer supported. Use relay withdrawal or ragequit.');
+    showStatus('Direct withdrawal is no longer supported. Use relay withdrawal or ragequit.', 'error');
     return null;
   }
-  run.log('Submitting withdrawal transaction...');
-  const poolSigner = new ethers.Contract(job.intent.poolAddress, PP_POOL_ABI, _signer);
-  const tx = await wcTransaction(
-    poolSigner.withdraw([job.intent.recipient, proofState.withdrawalData], [proofState.pA, proofState.pB, proofState.pC, proofState.pubSigs]),
-    'Confirm Privacy Pools withdrawal'
-  );
-  const txHash = tx.hash;
-  run.log('Transaction submitted: ' + escText(txHash));
+  run.setProgressStage('submittingRelay', _ppwMode);
+  run.log('Submitting to relayer...');
+  run.setButtonText('Submitting to relayer...');
+  let relayResult;
+  try {
+    relayResult = await ppwRelayerRequest(
+      quoteState.relayChainId,
+      job.intent.scope,
+      { processooor: proofState.withdrawalProcessooor, data: proofState.withdrawalData },
+      proofState.proof,
+      proofState.publicSignals,
+      quoteState.relayQuote.feeCommitment
+    );
+  } catch (relayErr) {
+    console.warn('Privacy: relayer submission failed', relayErr);
+    run.logHtml('<b>Relayer submission failed.</b> Your withdrawal was not submitted. Retry the relay flow in a few minutes.');
+    showStatus('Relayer submission failed before submission. Your withdrawal was not submitted. Retry the relay flow in a few minutes.', 'error');
+    return null;
+  }
+  const txHash = relayResult?.txHash || relayResult?.hash || relayResult?.transactionHash;
+  if (!txHash) {
+    console.warn('Privacy: relayer returned unexpected response format', relayResult);
+    run.logHtml('<b>Relayer returned an unexpected response.</b> Your withdrawal was not submitted. Retry the relay flow.');
+    showStatus('Relayer did not confirm submission. Your withdrawal was not submitted. Retry the relay flow.', 'error');
+    return null;
+  }
+  run.log('Relayer accepted! Transaction: ' + escText(txHash));
   run.setButtonText('Waiting for confirmation...');
   run.setProgressStage('waitingConfirmation', _ppwMode);
-  const receipt = await waitForTx(tx, 300_000);
-  return { txHash, receipt, tx };
+  let receipt = null;
+  for (let poll = 0; poll < 150; poll++) {
+    receipt = await ppReadWithRpc((rpc) => rpc.getTransactionReceipt(txHash)).catch(() => null);
+    if (receipt) break;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  return { txHash, receipt, relayResult };
 }
 
 async function ppwFinalizeWithdrawalSuccess(receipt, job, proofState, submission, run) {
   run.setProgressStage('complete', _ppwMode);
-  run.logHtml('<b>Withdrawal confirmed!</b> ' + ppwEscapeStatusLogText(fmt(ppFormatAmountWei(job.intent.withdrawnValue, job.intent.wAsset))) + ' ' + ppwEscapeStatusLogText(job.assetUnit) + ' sent to ' + ppwEscapeStatusLogText(job.intent.recipient.slice(0, 10)) + '...' + (job.intent.isRelayMode ? ' (via relay)' : ' (direct, no privacy benefit)'));
+  run.logHtml('<b>Withdrawal confirmed!</b> ' + ppwEscapeStatusLogText(fmt(ppFormatAmountWei(job.intent.withdrawnValue, job.intent.wAsset))) + ' ' + ppwEscapeStatusLogText(job.assetUnit) + ' sent to ' + ppwEscapeStatusLogText(job.intent.recipient.slice(0, 10)) + '... (via relay)');
   _ppwReviewedRelayQuote = null;
   ppwSetDraftInteractivity('editing');
   if (job.isPartial) {
@@ -7867,6 +7842,11 @@ async function ppwWithdraw({ reviewedRelayQuote = _ppwReviewedRelayQuote } = {})
     run.reset();
     const intent = await ppwCollectWithdrawalIntent(run);
     if (!intent) return;
+    if (!intent.isRelayMode) {
+      run.logHtml('<b>Error:</b> Direct withdrawal is no longer supported. Use relay withdrawal or ragequit.');
+      showStatus('Direct withdrawal is no longer supported. Use relay withdrawal or ragequit.', 'error');
+      return;
+    }
     const state = await ppwLoadWithdrawalState(intent, run);
     if (!state) return;
     let quoteState;

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PRIVACY_RUNTIME_START_MARKER = '// ==================== PRIVACY POOLS RUNTIME START ====================';
 const PRIVACY_RUNTIME_END_MARKER = '// ==================== PRIVACY POOLS RUNTIME END ====================';
+const PRIVACY_RUNTIME_PATH = path.join(ROOT, 'dapp/privacy-pools.js');
 
 let _appSourceCache = null;
 let _privacyRuntimeSourceCache = null;
@@ -22,11 +23,13 @@ function getAppSource() {
 
 function getPrivacyRuntimeSource() {
   if (!_privacyRuntimeSourceCache) {
-    _privacyRuntimeSourceCache = sliceSourceByMarkers(
-      getAppSource(),
-      PRIVACY_RUNTIME_START_MARKER,
-      PRIVACY_RUNTIME_END_MARKER,
-    );
+    _privacyRuntimeSourceCache = existsSync(PRIVACY_RUNTIME_PATH)
+      ? readFileSync(PRIVACY_RUNTIME_PATH, 'utf8')
+      : sliceSourceByMarkers(
+          getAppSource(),
+          PRIVACY_RUNTIME_START_MARKER,
+          PRIVACY_RUNTIME_END_MARKER,
+        );
   }
   return _privacyRuntimeSourceCache;
 }
@@ -45,6 +48,10 @@ function validateStatePatchKeys(statePatch, ctx) {
 
 export function loadPrivacyMarkupSource() {
   return getAppSource();
+}
+
+export function loadPrivacyRuntimeSource() {
+  return getPrivacyRuntimeSource();
 }
 
 function sliceSourceByMarkers(source, startMarker, endMarker) {

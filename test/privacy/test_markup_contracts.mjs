@@ -9,6 +9,7 @@
 //
 import { strict as assert } from 'node:assert';
 import {
+  bootPrivacyStaticShell,
   createTestRunner,
   loadPrivacyMarkupSource,
   loadPrivacyRuntimeSource,
@@ -37,6 +38,17 @@ test('static privacy shell still ships the extracted runtime asset', () => {
     appHtml.includes('<script src="./privacy-pools.js"></script>'),
     'index.html must include the privacy runtime script for static ENS/IPFS deployments',
   );
+});
+
+test('static privacy shell boots the extracted runtime from index.html', () => {
+  const shell = bootPrivacyStaticShell();
+
+  assert.ok(shell.api, 'privacy runtime test api should still register during static-shell boot');
+  assert.equal(typeof shell.context.switchTab, 'function');
+  assert.equal(shell.document.title, 'PRIVACY');
+  assert.equal(shell.elements.privacyTab?.style.display, '');
+  assert.equal(shell.elements.swapTab?.style.display, 'none');
+  assert.ok(shell.document.getElementById('walletBtn'), 'wallet shell should still mount during boot');
 });
 
 test('privacy markup exposes the stable DOM ids used by the live tests', () => {

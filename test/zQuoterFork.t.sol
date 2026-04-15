@@ -754,7 +754,11 @@ contract zQuoterForkTest is Test {
 
     function test_slippage_max_bps_reverts() public {
         vm.expectRevert();
-        SlippageLib.limit(false, 1000e6, 10000); // 100% = BPS, should revert
+        this.externalLimit(false, 1000e6, 10000); // 100% = BPS, should revert
+    }
+
+    function externalLimit(bool exactOut, uint256 quoted, uint256 bps) external pure returns (uint256) {
+        return SlippageLib.limit(exactOut, quoted, bps);
     }
 
     function test_slippage_high_bps() public view {
@@ -767,7 +771,7 @@ contract zQuoterForkTest is Test {
         // Verify ceiling division: 1 wei quoted with 1 bps
         // maxIn = ceil(1 * 10001 / 10000) = ceil(1.0001) = 2
         uint256 lim = SlippageLib.limit(true, 1, 1);
-        assertEq(lim, 1, "1 * 10001 / 10000 = 1 (no extra needed at this scale)");
+        assertEq(lim, 2, "ceil(1 * 10001 / 10000) = 2");
     }
 
     // ================================================================

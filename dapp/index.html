@@ -7045,7 +7045,7 @@ async function executeSwap() {
         receivedAmount = endingBalance > startingBalance ? endingBalance - startingBalance : 0n;
       } else {
         // For native ETH: balance delta is (output - gasCost), so add gas back
-        const gasCost = (swapReceipt.gasUsed ?? 0n) * (swapReceipt.gasPrice ?? swapReceipt.effectiveGasPrice ?? 0n);
+        const gasCost = (swapReceipt.gasUsed ?? 0n) * (swapReceipt.effectiveGasPrice ?? swapReceipt.gasPrice ?? 0n);
         const adjustedDelta = (endingBalance + gasCost) - startingBalance;
         receivedAmount = adjustedDelta > 0n ? adjustedDelta : 0n;
       }
